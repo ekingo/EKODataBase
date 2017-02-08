@@ -49,3 +49,6 @@ return @"123456";
 
 //TODOList
 1，模型支持关键字，insert时，使用关键字做区分，避免重复插入
+
+最初版本源代码来源于该项目：
+https://github.com/netyouli/WHC_ModelSqliteKit
