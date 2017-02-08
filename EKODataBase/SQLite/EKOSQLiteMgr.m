@@ -501,6 +501,12 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
         NSString * table_name = NSStringFromClass(model_class);
         NSString * cache_directory = [self databaseCacheDirectory];
         NSString * database_cache_path = [NSString stringWithFormat:@"%@%@",cache_directory,local_model_name];
+        
+        //文件存在时，才需要进行迁移
+        if (![[NSFileManager defaultManager] fileExistsAtPath:database_cache_path]) {
+            return;
+        }
+        
         if ([self openDataBase:database_cache_path encryptKey:[self encryptKeyForClass:model_class]] == EKOSErrorNone) {
             NSArray * old_model_field_name_array = [self getModelFieldNameWithClass:model_class];
             NSDictionary * new_model_info = [self parserModelObjectFieldsWithModelClass:model_class];
@@ -649,20 +655,22 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
     }
 }
 
-- (BOOL)openTable:(Class)model_class {
+- (NSString *)tablePathForClass:(Class)cls autoCreate:(BOOL)autoCreate{
     NSFileManager * file_manager = [NSFileManager defaultManager];
     NSString * cache_directory = [self databaseCacheDirectory];
     BOOL is_directory = YES;
     if (![file_manager fileExistsAtPath:cache_directory isDirectory:&is_directory]) {
-        [file_manager createDirectoryAtPath:cache_directory withIntermediateDirectories:YES attributes:nil error:nil];
+        if (autoCreate) {
+            [file_manager createDirectoryAtPath:cache_directory withIntermediateDirectories:YES attributes:nil error:nil];
+        }
     }
     
-    NSString * version = [self performFunc:kDynamicFunctionVersion forClass:model_class];
+    NSString * version = [self performFunc:kDynamicFunctionVersion forClass:cls];
     if (version) {
-        NSString * local_model_name = [self localNameWithClass:model_class];
+        NSString * local_model_name = [self localNameWithClass:cls];
         if (local_model_name != nil &&
             [local_model_name rangeOfString:version].location == NSNotFound) {
-            [self updateTableFieldWithModel:model_class
+            [self updateTableFieldWithModel:cls
                                  newVersion:version
                              localModelName:local_model_name];
         }
@@ -670,13 +678,19 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
         version = @"1.0";
     }
     
+    NSString * database_cache_path = [NSString stringWithFormat:@"%@%@_v%@.sdb",cache_directory,NSStringFromClass(cls),version];
+    
+    return database_cache_path;
+}
+
+- (BOOL)openTable:(Class)model_class {
     //密码
     NSString *password = [self performFunc:kDynamicFunctionPassword forClass:model_class];
     if (!password) {
         password = [self encryptKeyForClass:model_class];
     }
     
-    NSString * database_cache_path = [NSString stringWithFormat:@"%@%@_v%@.sdb",cache_directory,NSStringFromClass(model_class),version];
+    NSString * database_cache_path = [self tablePathForClass:model_class autoCreate:YES];
     //if (sqlite3_open([database_cache_path UTF8String], &_edb_database) == SQLITE_OK) {
     if([self openDataBase:database_cache_path encryptKey:password] == EKOSErrorNone){
         return [self createTable:model_class];
@@ -934,13 +948,13 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
         //[field_array enumerateObjectsUsingBlock:^(NSString *  _Nonnull field, NSUInteger idx, BOOL * _Nonnull stop) {
         for (NSString *field in field_array) {
             id value = [model_object valueForKey:field];
+            EDBPropertyInfo * property_info = field_dictionary[field];
             
-            if (!value) {
+            if (!value && property_info.type != _Model) {
                 //值为空时，不做更改
                 continue;
             }
             
-            EDBPropertyInfo * property_info = field_dictionary[field];
             [insert_field_array addObject:field];
             insert_sql = [insert_sql stringByAppendingFormat:@"%@,",field];
             
@@ -1165,7 +1179,9 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
 
 #pragma mark - query
 - (NSArray *)commonQuery:(Class)model_class conditions:(NSArray *)conditions subModelName:(NSString *)sub_model_name queryType:(EDB_QueryType)query_type {
+    
     if (![self openTable:model_class]) return @[];
+    
     NSDictionary * field_dictionary = [self parserModelObjectFieldsWithModelClass:model_class];
     NSString * table_name = NSStringFromClass(model_class);
     NSString * select_sql = [NSString stringWithFormat:@"SELECT * FROM %@",table_name];
@@ -1387,6 +1403,15 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
 }
 
 - (NSArray *)queryModel:(Class)model_class conditions:(NSArray *)conditions queryType:(EDB_QueryType)query_type {
+    
+    if (!model_class) {
+        return nil;
+    }
+    
+    if (![[NSFileManager defaultManager] fileExistsAtPath:[self tablePathForClass:model_class autoCreate:NO]]) {
+        return nil;
+    }
+    
     dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
     [self.sub_model_info removeAllObjects];
     NSDictionary * sub_model_class_info = [self scanSubModelClass:model_class];
@@ -1647,6 +1672,17 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
                     iResult = sqlite3_bind_blob(pp_stmt, index, [value bytes], (int)[value length], SQLITE_TRANSIENT);
                 }
                     break;
+                case _Blob:{
+                    id value = [sub_model_object valueForKey:field];
+                    
+                    NSData *data = [self archiveValue:value encode:YES];
+                    if (data) {
+                        iResult = sqlite3_bind_blob(pp_stmt, index, [data bytes], (int)[data length], SQLITE_TRANSIENT);
+                    }else{
+                        NSLog(@"数据格式错误，无法保存数据：%@",value);
+                    }
+                }
+                    break;
                 case _String: {
                     NSString * value = [sub_model_object valueForKey:field];
                     if (value == nil) {
@@ -1766,7 +1802,33 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
         NSArray * model_object_array = queryDictionary.allValues.lastObject;
         [model_object_array enumerateObjectsUsingBlock:^(NSDictionary * sub_model_id_info, NSUInteger idx, BOOL * _Nonnull stop) {
             [sub_model_id_info.allKeys enumerateObjectsUsingBlock:^(NSString * field_name, NSUInteger idx, BOOL * _Nonnull stop) {
-                [self updateCommonModel:[model_object valueForKey:field_name] where:[NSString stringWithFormat:@"_id = %@",sub_model_id_info[field_name]] replaceNil:replaceNil];
+                
+                NSString *_id = sub_model_id_info[field_name];
+                id subModel = [model_object valueForKey:field_name];
+                
+                if ([_id integerValue] == kNoHandleKeyId && subModel) {
+                    NSLog(@"还未写入数据，应该是先insert！");
+                    
+                    sqlite_int64 idx = [self commonInsertSubModelObject:subModel];
+                    if (idx > 0) {
+                        NSString *_idSub = [self performFunc:kDefaultPrimaryKey forModel:subModel];
+                        if (!_idSub) {
+                            _idSub = [NSString stringWithFormat:@"%ld",(long)idx];
+                        }
+                        
+                        if ([self openTable:[model_object class]]) {
+                            NSString *sql = [NSString stringWithFormat:@"update %@ set %@=%@",[model_object class],field_name,_idSub];
+                            if (where && where.length>0) {
+                                sql = [sql stringByAppendingString:[NSString stringWithFormat:@" where %@",where]];
+                            }
+                            [self execSql:sql];
+                            
+                            [self closeDatabase];
+                        }
+                    }
+                }else{
+                    [self updateCommonModel:[model_object valueForKey:field_name] where:[NSString stringWithFormat:@"_id = %@",_id] replaceNil:replaceNil];
+                }
             }];
         }];
     }

@@ -18,6 +18,8 @@
 @property (nonatomic, retain) NSString *userId;
 @property (nonatomic, retain) NSString *nameId;
 
+@property (nonatomic, assign) NSInteger flag;
+
 + (NSString *)VERSION;
 
 @end
@@ -30,6 +32,8 @@
 @end
 
 @interface TestModelSecond : NSObject
+
+@property (nonatomic, readonly) NSString *_id;
 
 @property (nonatomic, retain) NSString *n2;
 @property (nonatomic, retain) TestModelFirst *first;
@@ -110,6 +114,7 @@
     
     TestModel *m3 = [[TestModel alloc] init];
     m3.userId = @"u3";
+    m3.flag = 1;
     [self.mgr insertModel:m3];
     
     NSArray *results = [self.mgr queryByClass:[model class]];
@@ -134,6 +139,7 @@
             model.name = model.name?([model.name stringByAppendingString:@"_update"]):@"update";
             //有定义_id字段，update和insert是同样的效果
             //[self.mgr updateModel:model];
+            //model.flag = 111;
             [self.mgr updateModel:model replaceNil:YES];
         }];
     }
@@ -151,6 +157,12 @@
     [results enumerateObjectsUsingBlock:^(TestModel *obj,NSUInteger idx,BOOL *stop){
         NSLog(@"%ld:queryed obj:%@,%@\r",idx,obj.name,obj.telphone);
     }];
+}
+
+- (void)testDBQueryNull{
+    NSArray *results = [self.mgr queryByClass:nil];
+    
+    XCTAssertTrue(results.count<=0);
 }
 
 //encrypt
@@ -197,6 +209,24 @@
     model.firsts = @[first1,first2];
     
     [self testModel:model];
+}
+
+- (void)testDBEmbeddedUpdate{
+    NSArray *results = [self.mgr queryByClass:[TestModelSecond class]];
+    if ([results count]>0) {
+        [results enumerateObjectsUsingBlock:^(TestModelSecond *model,NSUInteger idx,BOOL *stop){
+            if (!model.first) {
+                model.first = [[TestModelFirst alloc] init];
+                model.first.n1 = @"n10_update";
+            }else{
+                model.first.n1 = @"n1_update";
+            }
+            [self.mgr updateModel:model];
+        }];
+    }
+    
+    NSArray *r = [self.mgr queryByClass:[TestModelSecond class]];
+    XCTAssert([r count]>0);
 }
 
 - (void)testDBModelDictionry{
