@@ -81,7 +81,7 @@ NSString *const kDynamicFunctionVersion     = @"VERSION";
 NSString *const kDynamicFunctionPassword    = @"PASSWORD";
 NSString *const kDefaultPrimaryKey          = @"_id"; //默认主键字段
 NSString *const kUnionPrimaryKeys           = @"eko_unionPrimaryKeys"; //联合主键
-NSString *const kContainParentProperties    = @"eko_isContainsParentProperties"; //是否保存父类property，默认不包含
+NSString *const kContainParentProperties    = @"eko_isContainsParentProperties"; //是否保存父类property，默认包含
 NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入数据库时需要排除掉的关键字
 
 @interface EKOSQLiteMgr()
@@ -202,6 +202,27 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     }
     
     return sql;
+}
+
+//model可以生产的where语句
+- (NSString *)allPrimaryKeyWhereSQLForModel:(id)model{
+    NSString *where = nil;
+    
+    do {
+        NSString *_id = [self performFunc:kDefaultPrimaryKey forModel:model];
+        if (_id) {
+            where = [NSString stringWithFormat:@"%@=%@",kDefaultPrimaryKey,_id];
+            break;
+        }
+    
+        where = [self primaryKeyWhereSQLForModel:model];
+        if (where.length>0) {
+            break;
+        }
+        
+    }while(0);
+    
+    return where;
 }
 
 - (NSDictionary *)removePrimaryKeyFields:(NSDictionary *)fields forModel:(id)model{
@@ -461,7 +482,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return [self scanCommonSubModel:cls isClass:YES];
 }
 
-- (NSDictionary * )scanSubModelObject:(NSObject *)model_object {
+- (NSDictionary * )scanSubModelObject:(id)model_object {
     return [self scanCommonSubModel:model_object isClass:NO];
 }
 
@@ -962,7 +983,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             
             int iCount = [self commonQueryCountForModelClass:[model_object class] where:primaryKeyWhere];
             if (iCount > 0) {
-                iRes = [self commonUpdateModel:model_object where:primaryKeyWhere];
+                iRes = [self commonUpdateModel:model_object where:primaryKeyWhere subModelName:nil replaceNil:NO];
             
                 if (iRes == SQLITE_OK) {
                     break;
@@ -1547,7 +1568,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 }
 
 #pragma mark - update
-- (int)commonUpdateModel:(id)model where:(NSString *)where{
+- (int)commonUpdateModel:(id)model where:(NSString *)where subModelName:(NSString *)sub_model_name replaceNil:(BOOL)replaceNil{
     if (model == nil) return SQLITE_EMPTY;
     int iRes = SQLITE_OK;
     
@@ -1564,9 +1585,20 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     NSMutableArray * update_field_array = [NSMutableArray array];
     [field_array enumerateObjectsUsingBlock:^(id  _Nonnull field, NSUInteger idx, BOOL * _Nonnull stop) {
         EDBPropertyInfo * property_info = field_dictionary[field];
-        if (property_info.type != _Model) {
-            update_sql = [update_sql stringByAppendingFormat:@"%@ = ?,",field];
-            [update_field_array addObject:field];
+        if (!replaceNil) {
+            //如果不需要替换nil字段值，则无需更新该字段内容
+            id value = [model valueForKey:field];
+            if (value) {
+                if (property_info.type != _Model) {
+                    update_sql = [update_sql stringByAppendingFormat:@"%@ = ?,",field];
+                    [update_field_array addObject:field];
+                }
+            }
+        }else{
+            if (property_info.type != _Model) {
+                update_sql = [update_sql stringByAppendingFormat:@"%@ = ?,",field];
+                [update_field_array addObject:field];
+            }
         }
     }];
     update_sql = [update_sql substringWithRange:NSMakeRange(0, update_sql.length - 1)];
@@ -1576,7 +1608,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     if (sqlite3_prepare_v2(_edb_database, [update_sql UTF8String], -1, &pp_stmt, nil) == SQLITE_OK) {
         __block int iResult = SQLITE_OK;
         
-        [field_array enumerateObjectsUsingBlock:^(id  _Nonnull field, NSUInteger idx, BOOL * _Nonnull stop) {
+        [update_field_array enumerateObjectsUsingBlock:^(id  _Nonnull field, NSUInteger idx, BOOL * _Nonnull stop) {
             EDBPropertyInfo * property_info = field_dictionary[field];
             int index = (int)[update_field_array indexOfObject:field] + 1;
             switch (property_info.type) {
@@ -1604,6 +1636,17 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                     iResult = sqlite3_bind_text(pp_stmt, index, [value UTF8String], -1, SQLITE_TRANSIENT);
                 }
                     break;
+                case _Blob:{
+                    id value = [model valueForKey:field];
+                    
+                    NSData *data = [self archiveValue:value encode:YES];
+                    if (data) {
+                        iResult = sqlite3_bind_blob(pp_stmt, index, [data bytes], (int)[data length], SQLITE_TRANSIENT);
+                    }else{
+                        NSLog(@"数据格式错误，无法保存数据：%@",value);
+                    }
+                }
+                    break;
                 case _Number: {
                     NSNumber * value = [model valueForKey:field];
                     if (value == nil) {
@@ -1615,10 +1658,13 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 }
                     break;
                 case _Int: {
+                    if (sub_model_name &&
+                        [sub_model_name rangeOfString:field].location != NSNotFound){} else {
                         /* 32bit os type issue
                          long value = ((long (*)(id, SEL))(void *) objc_msgSend)((id)sub_model_object, property_info.getter);*/
-                    NSNumber * value = [model valueForKey:field];
-                    iResult = sqlite3_bind_int64(pp_stmt, index, (sqlite3_int64)[value longLongValue]);
+                        NSNumber * value = [model valueForKey:field];
+                        iResult = sqlite3_bind_int64(pp_stmt, index, (sqlite3_int64)[value longLongValue]);
+                    }
                 }
                     break;
                 case _Char: {
@@ -1664,153 +1710,13 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 }
 
 - (int)updateSubModel:(id)sub_model_object where:(NSString *)where subModelName:(NSString *)sub_model_name replaceNil:(BOOL)replaceNil{
-    if (sub_model_object == nil) return SQLITE_EMPTY;
-    Class sum_model_class = [sub_model_object class];
-    
     int iRes = SQLITE_OK;
     
-    sqlite3_stmt * pp_stmt = nil;
-    NSDictionary * field_dictionary = [self parserModelObjectFieldsWithModelClass:sum_model_class];
-    
-    //移除需要更新的关键字
-    field_dictionary = [self removePrimaryKeyFields:field_dictionary forModel:sub_model_object];
-    
-    NSString * table_name = NSStringFromClass(sum_model_class);
-    __block NSString * update_sql = [NSString stringWithFormat:@"UPDATE %@ SET ",table_name];
-    
-    NSArray * field_array = field_dictionary.allKeys;
-    NSMutableArray * update_field_array = [NSMutableArray array];
-    [field_array enumerateObjectsUsingBlock:^(id  _Nonnull field, NSUInteger idx, BOOL * _Nonnull stop) {
-        EDBPropertyInfo * property_info = field_dictionary[field];
-        if (!replaceNil) {
-            //如果不需要替换nil字段值，则无需更新该字段内容
-            id value = [sub_model_object valueForKey:field];
-            if (value) {
-                if (property_info.type != _Model) {
-                    update_sql = [update_sql stringByAppendingFormat:@"%@ = ?,",field];
-                    [update_field_array addObject:field];
-                }
-            }
-        }else{
-            if (property_info.type != _Model) {
-                update_sql = [update_sql stringByAppendingFormat:@"%@ = ?,",field];
-                [update_field_array addObject:field];
-            }
-        }
-    }];
-    update_sql = [update_sql substringWithRange:NSMakeRange(0, update_sql.length - 1)];
-    if (where != nil && where.length > 0) {
-        update_sql = [update_sql stringByAppendingFormat:@" WHERE %@", where];
-    }
-    
-    if ([update_field_array count]<=0) {
-        NSLog(@"没有需要更新的内容！");
-        return SQLITE_EMPTY;
-    }
-    
-    if (![self openTable:sum_model_class])
+    if (![self openTable:[sub_model_object class]])
         return SQLITE_ERROR;
     
-    if (sqlite3_prepare_v2(_edb_database, [update_sql UTF8String], -1, &pp_stmt, nil) == SQLITE_OK) {
-        __block int iResult = SQLITE_OK;
-        
-        [update_field_array enumerateObjectsUsingBlock:^(id  _Nonnull field, NSUInteger idx, BOOL * _Nonnull stop) {
-            EDBPropertyInfo * property_info = field_dictionary[field];
-            int index = (int)[update_field_array indexOfObject:field] + 1;
-            switch (property_info.type) {
-                case _Data: {
-                    NSData * value = [sub_model_object valueForKey:field];
-                    if (value == nil) {
-                        value = [NSData data];
-                    }
-                    iResult = sqlite3_bind_blob(pp_stmt, index, [value bytes], (int)[value length], SQLITE_TRANSIENT);
-                }
-                    break;
-                case _Blob:{
-                    id value = [sub_model_object valueForKey:field];
-                    
-                    NSData *data = [self archiveValue:value encode:YES];
-                    if (data) {
-                        iResult = sqlite3_bind_blob(pp_stmt, index, [data bytes], (int)[data length], SQLITE_TRANSIENT);
-                    }else{
-                        NSLog(@"数据格式错误，无法保存数据：%@",value);
-                    }
-                }
-                    break;
-                case _String: {
-                    id value = [sub_model_object valueForKey:field];
-                    if (value == nil) {
-                        value = @"";
-                    }
-                    if (![value isKindOfClass:[NSString class]]) {
-                        if ([value respondsToSelector:@selector(stringValue)]) {
-                            value = [value stringValue];
-                        }else{
-                            NSLog(@"value:%@ is not NSString!!!",value);
-                            break;
-                        }
-                    }
-                    iResult = sqlite3_bind_text(pp_stmt, index, [value UTF8String], -1, SQLITE_TRANSIENT);
-                }
-                    break;
-                case _Number: {
-                    NSNumber * value = [sub_model_object valueForKey:field];
-                    if (value == nil) {
-                        value = @(0.0);
-                    }
-                    if (property_info.type != _Model) {
-                        iResult = sqlite3_bind_double(pp_stmt, index, [value doubleValue]);
-                    }
-                }
-                    break;
-                case _Int: {
-                    if (sub_model_name &&
-                        [sub_model_name rangeOfString:field].location != NSNotFound){} else {
-                        /* 32bit os type issue
-                         long value = ((long (*)(id, SEL))(void *) objc_msgSend)((id)sub_model_object, property_info.getter);*/
-                        NSNumber * value = [sub_model_object valueForKey:field];
-                        iResult = sqlite3_bind_int64(pp_stmt, index, (sqlite3_int64)[value longLongValue]);
-                    }
-                }
-                    break;
-                case _Char: {
-                    char value = ((char (*)(id, SEL))(void *) objc_msgSend)((id)sub_model_object, property_info.getter);
-                    iResult =sqlite3_bind_int(pp_stmt, index, value);
-                }
-                    break;
-                case _Float: {
-                    float value = ((float (*)(id, SEL))(void *) objc_msgSend)((id)sub_model_object, property_info.getter);
-                    iResult = sqlite3_bind_double(pp_stmt, index, value);
-                }
-                    break;
-                case _Double: {
-                    double value = ((double (*)(id, SEL))(void *) objc_msgSend)((id)sub_model_object, property_info.getter);
-                    iResult = sqlite3_bind_double(pp_stmt, index, value);
-                }
-                    break;
-                case _Boolean: {
-                    BOOL value = ((BOOL (*)(id, SEL))(void *) objc_msgSend)((id)sub_model_object, property_info.getter);
-                    iResult = sqlite3_bind_int(pp_stmt, index, value);
-                }
-                    break;
-                default:
-                    break;
-            }
-            if (iResult != SQLITE_OK) {
-                NSLog(@"Update Fail(res=%ld",(long)iResult);
-                *stop = YES;
-            }
-        }];
-        
-        iRes = iResult;
-        
-        if(sqlite3_step(pp_stmt) != SQLITE_DONE){
-            iRes = sqlite3_finalize(pp_stmt);
-        }
-    }else {
-        NSLog(@"更新失败");
-        iRes = SQLITE_ERROR;
-    }
+    iRes = [self commonUpdateModel:sub_model_object where:where subModelName:sub_model_name replaceNil:replaceNil];
+    
     [self closeDatabase];
     
     return iRes;
@@ -1899,7 +1805,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 }
 
 #pragma mark - delete
-- (BOOL)commonDeleteModel:(Class)model_class where:(NSString *)where {
+- (BOOL)commonDeleteModelClass:(Class)model_class where:(NSString *)where {
     BOOL result = NO;
     if ([self openTable:model_class]) {
         NSString * table_name = NSStringFromClass(model_class);
@@ -1913,16 +1819,16 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return result;
 }
 
-- (void)deleteModel:(Class)model_class where:(NSString *)where {
+- (void)deleteModelClass:(Class)model_class where:(NSString *)where {
     if (where != nil && where.length > 0) {
         NSDictionary * queryDictionary = [self modifyAssistQuery:model_class where:where];
         NSDictionary * subModelInfo = [self scanSubModelClass:model_class];
         if (queryDictionary.count > 0) {
             NSArray * model_object_array = queryDictionary.allValues.lastObject;
-            if ([self commonDeleteModel:model_class where:where]) {
+            if ([self commonDeleteModelClass:model_class where:where]) {
                 [model_object_array enumerateObjectsUsingBlock:^(NSDictionary * sub_model_id_info, NSUInteger idx, BOOL * _Nonnull stop) {
                     [sub_model_id_info.allKeys enumerateObjectsUsingBlock:^(NSString * field_name, NSUInteger idx, BOOL * _Nonnull stop) {
-                        [self deleteModel:NSClassFromString(subModelInfo[field_name]) where:[NSString stringWithFormat:@"_id = %@",sub_model_id_info[field_name]]];
+                        [self deleteModelClass:NSClassFromString(subModelInfo[field_name]) where:[NSString stringWithFormat:@"_id = %@",sub_model_id_info[field_name]]];
                     }];
                 }];
             }
@@ -1931,13 +1837,78 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         }
     }else {
     DELETE:
-        if ([self commonDeleteModel:model_class where:where]) {
+        if ([self commonDeleteModelClass:model_class where:where]) {
             NSDictionary * sub_model_class_info = [self scanSubModelClass:model_class];
             [sub_model_class_info enumerateKeysAndObjectsUsingBlock:^(id  _Nonnull key, id  _Nonnull obj, BOOL * _Nonnull stop) {
-                [self deleteModel:NSClassFromString(obj) where:where];
+                [self deleteModelClass:NSClassFromString(obj) where:where];
             }];
         }
     }
+}
+
+- (BOOL)commonDeleteSubModel:(id)model where:(NSString *)where{
+    BOOL result = NO;
+    
+    NSString * table_name = NSStringFromClass([model class]);
+    
+    if (where.length <= 0) {
+        where = [self allPrimaryKeyWhereSQLForModel:model];
+    }
+    
+    NSString * delete_sql = [NSString stringWithFormat:@"DELETE FROM %@",table_name];
+    if (where != nil && where.length > 0) {
+        delete_sql = [delete_sql stringByAppendingFormat:@" WHERE %@",where];
+        result = [self execSql:delete_sql];
+    }else{
+        NSLog(@"%@未定义主键",model);
+    }
+    
+    return result;
+}
+
+- (int)commonDeleteSubModelArray:(NSArray *)models{
+    
+    int iDeleteCount = 0;
+    Class cls = [models.firstObject class];
+    
+    if (models.count > 0 &&
+        [self openTable:cls]) {
+        [self execSql:@"BEGIN"];
+        
+        for (id obj in models) {
+            if ([self commonDeleteSubModel:obj where:nil]) {
+                iDeleteCount += 1;
+            }
+        }
+        
+        [self execSql:@"COMMIT"];
+        [self closeDatabase];
+    }
+    
+    return iDeleteCount;
+}
+
+- (int)deleteSubModelArray:(NSArray *)models{
+    [models enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        
+        NSDictionary * sub_model_object_info = [self scanSubModelObject:obj];
+        
+        if (sub_model_object_info.count > 0) {
+            //找出_id关键字做删除
+            NSDictionary * queryDictionary = [self modifyAssistQuery:[obj class] where:[self allPrimaryKeyWhereSQLForModel:obj]];
+            
+            NSArray * model_object_array = queryDictionary.allValues.lastObject;
+            [model_object_array enumerateObjectsUsingBlock:^(NSDictionary * sub_model_id_info, NSUInteger idx, BOOL * _Nonnull stop) {
+                [sub_model_id_info.allKeys enumerateObjectsUsingBlock:^(NSString * field_name, NSUInteger idx, BOOL * _Nonnull stop) {
+                    NSString *_id = sub_model_id_info[field_name];
+                    id subModel = [obj valueForKey:field_name];
+                    [self deleteModelClass:[subModel class] where:[NSString stringWithFormat:@"_id = %@",_id]];
+                }];
+            }];
+        }
+    }];
+    
+    return [self commonDeleteSubModelArray:models];
 }
 
 #pragma mark - remove
@@ -2200,6 +2171,40 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     dispatch_semaphore_signal(self.dsema);
     
     return EKOSErrorNone;
+}
+
+- (EKOSError)deleteByModel:(id)model{
+    EKOSError result = EKOSErrorNone;
+    
+    NSString *where = nil;
+    NSString *_id = [self performFunc:kDefaultPrimaryKey forModel:model];
+    if (_id) {
+        //有关键字，需要update
+        where = [NSString stringWithFormat:@"%@=%@",kDefaultPrimaryKey,_id];
+    }else{
+        where = [self primaryKeyWhereSQLForModel:model];
+    }
+    
+    if (where && where.length>0) {
+        result = [self deleteByClass:[model class] where:where];
+    }else{
+        result = EKOSErrorPrimaryKeyLack;
+    }
+    
+    return EKOSErrorNone;
+}
+
+- (NSInteger)deleteByModels:(NSArray *)models{
+    NSInteger result = 0;
+    
+    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
+    @autoreleasepool {
+        [self.sub_model_info removeAllObjects];
+        result = [self deleteSubModelArray:models];
+    }
+    dispatch_semaphore_signal(self.dsema);
+    
+    return result;
 }
 
 - (EKOSError)removeAll{

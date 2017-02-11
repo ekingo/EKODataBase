@@ -18,6 +18,8 @@ typedef NS_ENUM(NSInteger,EKOSError) {
     EKOSErrorEncryptNotSupported    = 2, //不支持数据库加密
     
     EKOSErrorConditionNone          = 3, //未定义条件语句
+    
+    EKOSErrorPrimaryKeyLack         = 4, //缺少定义的主键
 };
 
 
@@ -133,6 +135,22 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  */
 - (EKOSError)deleteByClass:(Class)cls where:(NSString *)where;
 
+/**
+ 删除数据【根据自定义的主键删除】
+
+ @param model 数据模型
+ @return 成功
+ */
+- (EKOSError)deleteByModel:(id)model;
+
+
+/**
+ 删除数据列表
+
+ @param models 数据列表【数据格式需统一】
+ @return 删除条数
+ */
+- (NSInteger)deleteByModels:(NSArray *)models;
 
 /**
  移除数据库

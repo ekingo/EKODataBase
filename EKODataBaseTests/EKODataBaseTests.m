@@ -36,6 +36,7 @@
 @interface TestModelSecond : NSObject
 
 @property (nonatomic, readonly) NSString *_id;
+@property (nonatomic, strong) NSString *userId;
 
 @property (nonatomic, retain) NSString *n2;
 @property (nonatomic, retain) TestModelFirst *first;
@@ -300,6 +301,40 @@
     [self testModel:model];
 }
 
+#pragma mark - delete
+- (void)testDBDelete{
+    
+    [self.mgr removeByClass:[TestModelSecond class]];
+    
+    TestModelSecond *model = [[TestModelSecond alloc] init];
+    model.userId = @"delete";
+    model.n2 = @"test";
+    model.first = [[TestModelFirst alloc] init];
+    model.first.n1 = @"delete_1_first";
+    
+    [self.mgr insertModel:model];
+    
+    TestModelSecond *model2 = [[TestModelSecond alloc] init];
+    model2.userId = @"delete2";
+    model2.first = [[TestModelFirst alloc] init];
+    model2.first.n1 = @"delete_2_first";
+    
+    [self.mgr insertModel:model2];
+    
+    NSArray *testInsert = [self.mgr queryByClass:[TestModelSecond class]];
+    XCTAssertTrue([testInsert count] == 2);
+    
+    //EKOSError result = [self.mgr deleteByModel:model];
+    
+    NSArray *models = [NSArray arrayWithObjects:model,model2, nil];
+    
+    NSInteger result = [self.mgr deleteByModels:models];
+    
+    NSArray *tests = [self.mgr queryByClass:[TestModelSecond class]];
+    
+    XCTAssertTrue(result>0);
+}
+
 #pragma mark - getters
 - (EKOSQLiteMgr *)mgr{
     if (!_mgr) {
@@ -325,6 +360,10 @@
 
 + (NSString *)VERSION{
     return @"1.0";
+}
+
++ (NSArray *)eko_unionPrimaryKeys{
+    return @[@"userId"];
 }
 
 //+ (NSArray *)eko_ignoreProperties{
@@ -362,6 +401,10 @@
 
 @implementation TestModelSecond
 
++ (NSArray *)eko_unionPrimaryKeys{
+    return @[@"userId"];
+}
+
 @end
 
 
@@ -373,7 +416,7 @@
 
 @implementation TestModelUnion
 
-+ (NSArray *)unionPrimaryKeys{
++ (NSArray *)eko_unionPrimaryKeys{
     return @[@"userId",@"telephone"];
 }
 
