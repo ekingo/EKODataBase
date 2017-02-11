@@ -8,12 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		4AD9EF09895605CB7EC51426 /* libPods-EKODataBaseTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 88F35B19D54FE819E2A01B16 /* libPods-EKODataBaseTests.a */; };
-		D61C9574608235EEF20EC11D /* libPods-EKODataBase.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FE6B3D4C6BD56F7F173AACC9 /* libPods-EKODataBase.a */; };
 		DC10A3F41E45787A002564B4 /* readme.txt in Resources */ = {isa = PBXBuildFile; fileRef = DC10A3F31E45787A002564B4 /* readme.txt */; };
+		DC5794F01E4EAFF6008243E7 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DCBC46511E38825B004266E6 /* libsqlite3.tbd */; };
 		DCBC46401E387DFC004266E6 /* EKODataBase.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DCBC46361E387DFC004266E6 /* EKODataBase.framework */; };
 		DCBC46451E387DFC004266E6 /* EKODataBaseTests.m in Sources */ = {isa = PBXBuildFile; fileRef = DCBC46441E387DFC004266E6 /* EKODataBaseTests.m */; };
 		DCBC46471E387DFC004266E6 /* EKODataBase.h in Headers */ = {isa = PBXBuildFile; fileRef = DCBC46391E387DFC004266E6 /* EKODataBase.h */; settings = {ATTRIBUTES = (Public, ); }; };
-		DCBC46521E38825B004266E6 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DCBC46511E38825B004266E6 /* libsqlite3.tbd */; };
 		DCBC46561E388283004266E6 /* EKOSQLiteMgr.h in Headers */ = {isa = PBXBuildFile; fileRef = DCBC46541E388283004266E6 /* EKOSQLiteMgr.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		DCBC46571E388283004266E6 /* EKOSQLiteMgr.m in Sources */ = {isa = PBXBuildFile; fileRef = DCBC46551E388283004266E6 /* EKOSQLiteMgr.m */; };
 /* End PBXBuildFile section */
@@ -52,8 +51,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DCBC46521E38825B004266E6 /* libsqlite3.tbd in Frameworks */,
-				D61C9574608235EEF20EC11D /* libPods-EKODataBase.a in Frameworks */,
+				DC5794F01E4EAFF6008243E7 /* libsqlite3.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -158,12 +156,10 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = DCBC464A1E387DFC004266E6 /* Build configuration list for PBXNativeTarget "EKODataBase" */;
 			buildPhases = (
-				9EDD0A58695E6B4BC2E3E34A /* [CP] Check Pods Manifest.lock */,
 				DCBC46311E387DFC004266E6 /* Sources */,
 				DCBC46321E387DFC004266E6 /* Frameworks */,
 				DCBC46331E387DFC004266E6 /* Headers */,
 				DCBC46341E387DFC004266E6 /* Resources */,
-				4A162ED8D917444AC671AEC8 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -253,21 +249,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		4A162ED8D917444AC671AEC8 /* [CP] Copy Pods Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "[CP] Copy Pods Resources";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${SRCROOT}/../Pods/Target Support Files/Pods-EKODataBase/Pods-EKODataBase-resources.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
 		871C6348C922FCA81E03D7E8 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -284,21 +265,6 @@
 			showEnvVarsInLog = 0;
 		};
 		8BBA661D713696FD94E75AB5 /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_ROOT}/../Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n";
-			showEnvVarsInLog = 0;
-		};
-		9EDD0A58695E6B4BC2E3E34A /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (

@@ -47,8 +47,9 @@ return @"123456";
 @end
 
 
-//TODOList
-1，模型支持关键字，insert时，使用关键字做区分，避免重复插入
+TODOList:
+1，数据库保存一份（避免数据库频繁的打开关闭）；
+2，insert的NSArray列表时，可以是多个数据表；
 
 最初版本源代码来源于该项目：
 https://github.com/netyouli/WHC_ModelSqliteKit

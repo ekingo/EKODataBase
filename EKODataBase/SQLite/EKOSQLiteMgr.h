@@ -8,7 +8,7 @@
 
 #import <Foundation/Foundation.h>
 
-#define EKODATABASE_ENABLE_ENCRYPT  1
+#define EKODATABASE_ENABLE_ENCRYPT  0
 
 typedef NS_ENUM(NSInteger,EKOSError) {
     EKOSErrorUnknown = -1,
