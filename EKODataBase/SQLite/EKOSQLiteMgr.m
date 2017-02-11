@@ -85,7 +85,11 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
 @interface EKOSQLiteMgr()
 
 @property (nonatomic, strong) NSMutableDictionary * sub_model_info;
+#if OS_OBJECT_HAVE_OBJC_SUPPORT
 @property (nonatomic, strong) dispatch_semaphore_t dsema;
+#else
+@property (nonatomic, assign) dispatch_semaphore_t dsema;
+#endif
 
 //@property (nonatomic, strong) sqlite3 *
 @property (nonatomic, copy) NSString *dbWorkSpace;
@@ -310,6 +314,11 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
 }
 
 - (NSDictionary *)parserModelObjectFieldsWithModelClass:(Class)modelClass {
+    if (modelClass == [NSObject class]) {
+        //如果是NSObject，则意味着还没有定义字段
+        return nil;
+    }
+    
     NSMutableDictionary * fields = [NSMutableDictionary dictionary];
     unsigned int property_count = 0;
     objc_property_t * propertys = class_copyPropertyList(modelClass, &property_count);
@@ -352,6 +361,14 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
         }
     }
     free(propertys);
+    
+    if (modelClass.superclass) {
+        NSDictionary *fieldSuper = [self parserModelObjectFieldsWithModelClass:modelClass.superclass];
+        [fieldSuper enumerateKeysAndObjectsUsingBlock:^(id key,id obj,BOOL *stop){
+            [fields setValue:obj forKey:key];
+        }];
+    }
+    
     return fields;
 }
 
