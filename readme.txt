@@ -1,5 +1,9 @@
 更新记录
 
+0.0.5
+支持过滤属性字段（添加黑名单）[eko_ignoreProperties]
+支持是否包含父类属性（默认包含）
+
 0.0.4
 支持类表自动扩展字段（新的字段只能增加，不能删除或是修改类型）
 支持更新数据时，是否替换Nil字段为默认值（insert插入数据时，过滤掉为nil字段的值）
@@ -46,6 +50,19 @@ return @"123456";
 
 @end
 
+另外定义类的+函数接口
++ (NSArray *)eko_unionPrimaryKeys{
+//联合主键
+}
+
++ (NSNumber *)eko_isContainsParentProperties{
+//是否包含父类属性，默认包含，避免由于一些系统定义的类有过多属性需要查询
+//1:包含；0：不包含
+}
+
++ (NSArray *)eko_ignoreProperties{
+//写入数据库时，不包含解析的属性字段
+}
 
 TODOList:
 1，数据库保存一份（避免数据库频繁的打开关闭）；

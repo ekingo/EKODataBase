@@ -80,7 +80,9 @@ NSString *const kEDBEncryptKeyNormalClass = @"EDBNormalClass";
 NSString *const kDynamicFunctionVersion     = @"VERSION";
 NSString *const kDynamicFunctionPassword    = @"PASSWORD";
 NSString *const kDefaultPrimaryKey          = @"_id"; //默认主键字段
-NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主键
+NSString *const kUnionPrimaryKeys           = @"eko_unionPrimaryKeys"; //联合主键
+NSString *const kContainParentProperties    = @"eko_isContainsParentProperties"; //是否保存父类property，默认不包含
+NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入数据库时需要排除掉的关键字
 
 @interface EKOSQLiteMgr()
 
@@ -190,7 +192,11 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
                     [sql appendString:@" and "];
                 }
                 
-                [sql appendString:[NSString stringWithFormat:@"%@=\'%@\'",key,value]];
+                if ([value isKindOfClass:[NSNumber class]]) {
+                    [sql appendString:[NSString stringWithFormat:@"%@=%@",key,value]];
+                }else{
+                    [sql appendString:[NSString stringWithFormat:@"%@=\'%@\'",key,value]];
+                }
             }
         }
     }
@@ -313,11 +319,13 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
     return EDB_String;
 }
 
-- (NSDictionary *)parserModelObjectFieldsWithModelClass:(Class)modelClass {
+- (NSDictionary *)parserModelObjectFieldsWithModelClass:(Class)modelClass{
     if (modelClass == [NSObject class]) {
         //如果是NSObject，则意味着还没有定义字段
         return nil;
     }
+    
+    NSArray *ignores = [self performFunc:kIgnoreProperties forClass:modelClass];
     
     NSMutableDictionary * fields = [NSMutableDictionary dictionary];
     unsigned int property_count = 0;
@@ -327,6 +335,12 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
         const char * property_name = property_getName(property);
         const char * property_attributes = property_getAttributes(property);
         NSString * property_name_string = [NSString stringWithUTF8String:property_name];
+        
+        if ([ignores containsObject:property_name_string]) {
+            NSLog(@"ignore property:%@",property_name_string);
+            continue;
+        }
+        
         NSString * property_attributes_string = [NSString stringWithUTF8String:property_attributes];
         NSArray * property_attributes_list = [property_attributes_string componentsSeparatedByString:@"\""];
         if (property_attributes_list.count == 1) {
@@ -336,7 +350,7 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
             [fields setObject:property_info forKey:property_name_string];
         }else {
             // refernece type
-            Class class_type = NSClassFromString(property_attributes_list[1]);
+            Class class_type = NSClassFromString([self parsePropertyName:property_attributes_list[1]]);
             if (class_type == [NSNumber class]) {
                 EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Number propertyName:property_name_string];
                 [fields setObject:property_info forKey:property_name_string];
@@ -346,11 +360,7 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
             }else if (class_type == [NSData class]) {
                 EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Data propertyName:property_name_string];
                 [fields setObject:property_info forKey:property_name_string];
-            } else if (class_type == [NSArray class] ||
-                       class_type == [NSDictionary class] ||
-                       class_type == [NSDate class] ||
-                       class_type == [NSSet class] ||
-                       class_type == [NSValue class]) {
+            } else if ([self isSupportClass:class_type]) {
                 NSLog(@"检查模型类异常数据类型(不支持类型：%@)[自定义类型需要实现encodeWithCoder/initWithCoder",class_type);
                 EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Blob propertyName:property_name_string];
                 [fields setObject:property_info forKey:property_name_string];
@@ -363,10 +373,18 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
     free(propertys);
     
     if (modelClass.superclass) {
-        NSDictionary *fieldSuper = [self parserModelObjectFieldsWithModelClass:modelClass.superclass];
-        [fieldSuper enumerateKeysAndObjectsUsingBlock:^(id key,id obj,BOOL *stop){
-            [fields setValue:obj forKey:key];
-        }];
+        id containsParent = [self performFunc:kContainParentProperties forClass:modelClass];
+        BOOL bIncludeParent = YES; //默认包含父类定义的属性
+        if (containsParent && [containsParent respondsToSelector:@selector(boolValue)]) {
+            bIncludeParent = [containsParent boolValue];
+        }
+        
+        if (bIncludeParent) {
+            NSDictionary *fieldSuper = [self parserModelObjectFieldsWithModelClass:modelClass.superclass];
+            [fieldSuper enumerateKeysAndObjectsUsingBlock:^(id key,id obj,BOOL *stop){
+                [fields setValue:obj forKey:key];
+            }];
+        }
     }
     
     return fields;
@@ -386,11 +404,7 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
         }else if([value isKindOfClass:[NSData class]]){
             EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Data propertyName:key];
             [fields setObject:property_info forKey:key];
-        }else if([value isKindOfClass:[NSDate class]]
-                 ||[value isKindOfClass:[NSArray class]]
-                 ||[value isKindOfClass:[NSDictionary class]]
-                 ||[value isKindOfClass:[NSValue class]]
-                 ||[value isKindOfClass:[NSSet class]]){
+        }else if([self isSupportClass:[value class]]){
             NSLog(@"type %@ not supported!",[value class]);
             EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Blob propertyName:key];
             [fields setObject:property_info forKey:key];
@@ -408,25 +422,28 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
     NSMutableDictionary * sub_model_info = [NSMutableDictionary dictionary];
     unsigned int property_count = 0;
     objc_property_t * propertys = class_copyPropertyList(model_class, &property_count);
+    
+    NSArray *ignores = [self performFunc:kIgnoreProperties forClass:model_class];
+    
     for (int i = 0; i < property_count; i++) {
         objc_property_t property = propertys[i];
         const char * property_name = property_getName(property);
         const char * property_attributes = property_getAttributes(property);
         NSString * property_name_string = [NSString stringWithUTF8String:property_name];
+        
+        if ([ignores containsObject:property_name_string]) {
+            continue;
+        }
+        
         NSString * property_attributes_string = [NSString stringWithUTF8String:property_attributes];
         NSArray * property_attributes_list = [property_attributes_string componentsSeparatedByString:@"\""];
         if (property_attributes_list.count > 1) {
-            Class class_type = NSClassFromString(property_attributes_list[1]);
-            if (class_type != [NSString class] &&
-                class_type != [NSNumber class] &&
-                class_type != [NSArray class] &&
-                class_type != [NSSet class] &&
-                class_type != [NSData class] &&
-                class_type != [NSDate class] &&
-                class_type != [NSDictionary class] &&
-                class_type != [NSValue class]) {
+            Class class_type = NSClassFromString([self parsePropertyName:property_attributes_list[1]]);
+            if (![self isSupportClass:class_type]) {
+                //不是基本支持的类型，则是二级子目录
+                //TODO：非自定义的类需要做ignore
                 if (isClass) {
-                    [sub_model_info setObject:property_attributes_list[1] forKey:property_name_string];
+                    [sub_model_info setObject:[self parsePropertyName:property_attributes_list[1]] forKey:property_name_string];
                 }else {
                     id sub_model = [model valueForKey:property_name_string];
                     if (sub_model) {
@@ -701,6 +718,10 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
 }
 
 - (BOOL)openTable:(Class)model_class {
+    if (!model_class || model_class == [NSNull class]) {
+        return NO;
+    }
+    
     //密码
     NSString *password = [self performFunc:kDynamicFunctionPassword forClass:model_class];
     if (!password) {
@@ -2360,6 +2381,79 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
         NSString *clsName = NSStringFromClass(cls);
         [self.encryptKeys setValue:key forKey:clsName];
     }
+}
+
+
+/**
+ 由于有些系统类不能setvalue forKey，会导致异常
+ 需要判断是否支持的基本类型
+
+ @param cls 类
+ @return 是否可以保存到数据库
+ */
+- (BOOL)isSupportClass:(Class)cls{
+    NSArray *validateCls = @[
+                         [NSString class],
+                         [NSNumber class],
+                         [NSArray class],
+                         [NSSet class],
+                         [NSData class],
+                         [NSDate class],
+                         [NSDictionary class],
+                         [NSValue class],
+                         [NSError class]
+                         ];
+    BOOL bRes = NO;
+    
+    for (Class c in validateCls) {
+        if (cls == c) {
+            bRes = YES;
+            break;
+        }
+    }
+    
+    return bRes;
+}
+
+- (NSString *)parsePropertyName:(NSString *)attribute{
+    NSString *propertyType = nil;
+    
+    NSInteger isOptional = 0;
+    
+    if ([attribute containsString:@"<"]) {
+        //设置了属性，做过滤处理
+        NSScanner *scanner = [NSScanner scannerWithString:attribute];
+        if ([scanner scanUpToCharactersFromSet:[NSCharacterSet characterSetWithCharactersInString:@"<"]
+                                    intoString:&propertyType]) {
+            
+            while ([scanner scanString:@"<" intoString:nil]) {
+                NSString* protocolName = nil;
+                
+                [scanner scanUpToString:@">" intoString: &protocolName];
+                
+                if ([protocolName isEqualToString:@"Optional"]) {
+                    isOptional = 1;
+                } else if([protocolName isEqualToString:@"Ignore"]) {
+                    isOptional = 2;
+                } else {
+                    NSLog(@"unknown protocol:%@",protocolName);
+                }
+                
+                [scanner scanString:@">" intoString:NULL];
+            }
+        }
+    }else {
+        propertyType = attribute;
+    }
+    
+    if (isOptional == 2) {
+        //Ignore
+        //continue;
+    }else if(isOptional == 1){
+        //TODO
+    }
+    
+    return propertyType;
 }
 
 @end

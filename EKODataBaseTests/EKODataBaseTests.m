@@ -20,6 +20,8 @@
 
 @property (nonatomic, assign) NSInteger flag;
 
+@property (nonatomic, strong) NSError *error;
+
 + (NSString *)VERSION;
 
 @end
@@ -55,6 +57,12 @@
 @property (nonatomic, retain) NSString *telphone;
 
 + (NSString *)PASSWORD;
+
+@end
+
+@interface TestModelInherit : TestModel
+
+@property (nonatomic, strong) NSString *inherited;
 
 @end
 
@@ -160,7 +168,8 @@
 }
 
 - (void)testDBQueryNull{
-    NSArray *results = [self.mgr queryByClass:nil];
+    //NSArray *results = [self.mgr queryByClass:nil];
+    NSArray *results = [self.mgr queryByClass:[TestModelThird class]];
     
     XCTAssertTrue(results.count<=0);
 }
@@ -280,6 +289,17 @@
     [self testModel:model];
 }
 
+#pragma mark - InheritedModel
+- (void)testDBInheritedModel{
+    [self.mgr removeByClass:[TestModelInherit class]];
+    
+    TestModelInherit *model = [[TestModelInherit alloc] init];
+    model.userId = @"userId";
+    model.inherited = @"继承模型";
+    
+    [self testModel:model];
+}
+
 #pragma mark - getters
 - (EKOSQLiteMgr *)mgr{
     if (!_mgr) {
@@ -294,9 +314,22 @@
 
 @implementation TestModel
 
+- (instancetype)init{
+    self = [super init];
+    if (self) {
+        self.error = [NSError errorWithDomain:@"test_database" code:@"0" userInfo:nil];
+    }
+    
+    return self;
+}
+
 + (NSString *)VERSION{
     return @"1.0";
 }
+
+//+ (NSArray *)eko_ignoreProperties{
+//    return @[@"error"];
+//}
 
 @end
 
@@ -343,5 +376,10 @@
 + (NSArray *)unionPrimaryKeys{
     return @[@"userId",@"telephone"];
 }
+
+@end
+
+
+@implementation TestModelInherit
 
 @end
