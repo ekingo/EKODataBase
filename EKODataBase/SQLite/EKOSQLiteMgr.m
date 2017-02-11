@@ -1064,6 +1064,14 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
                     }
                         break;
                     case _String:
+                        if (![value isKindOfClass:[NSString class]]) {
+                            if ([value respondsToSelector:@selector(stringValue)]) {
+                                value = [value stringValue];
+                            }else{
+                                NSLog(@"value:%@ is not NSString!!!",value);
+                                break;
+                            }
+                        }
                         sqlite3_bind_text(pp_stmt, index, [value UTF8String], -1, SQLITE_TRANSIENT);
                         break;
                     case _Number:
@@ -1543,9 +1551,17 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
                 }
                     break;
                 case _String: {
-                    NSString * value = [model valueForKey:field];
+                    id value = [model valueForKey:field];
                     if (value == nil) {
                         value = @"";
+                    }
+                    if (![value isKindOfClass:[NSString class]]) {
+                        if ([value respondsToSelector:@selector(stringValue)]) {
+                            value = [value stringValue];
+                        }else{
+                            NSLog(@"value:%@ is not NSString!!!(save value as empty string)",value);
+                            break;
+                        }
                     }
                     iResult = sqlite3_bind_text(pp_stmt, index, [value UTF8String], -1, SQLITE_TRANSIENT);
                 }
@@ -1684,9 +1700,17 @@ NSString *const kUnionPrimaryKeys           = @"unionPrimaryKeys"; //联合主�
                 }
                     break;
                 case _String: {
-                    NSString * value = [sub_model_object valueForKey:field];
+                    id value = [sub_model_object valueForKey:field];
                     if (value == nil) {
                         value = @"";
+                    }
+                    if (![value isKindOfClass:[NSString class]]) {
+                        if ([value respondsToSelector:@selector(stringValue)]) {
+                            value = [value stringValue];
+                        }else{
+                            NSLog(@"value:%@ is not NSString!!!",value);
+                            break;
+                        }
                     }
                     iResult = sqlite3_bind_text(pp_stmt, index, [value UTF8String], -1, SQLITE_TRANSIENT);
                 }
