@@ -32,6 +32,8 @@ typedef NS_OPTIONS(NSInteger, EDB_FieldType) {
     _Model      =      1 << 7,
     _Data       =      1 << 8,
     _Blob       =      1 << 9, //NSArray等转换成NSData以二进制的形式保存？
+    _Array      =      1 << 10,
+    _Dictionary =      1 << 11,
 };
 
 typedef NS_OPTIONS(NSInteger, EDB_QueryType) {
@@ -84,6 +86,8 @@ NSString *const kUnionPrimaryKeys           = @"eko_unionPrimaryKeys"; //联合�
 NSString *const kContainParentProperties    = @"eko_isContainsParentProperties"; //是否保存父类property，默认包含
 NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入数据库时需要排除掉的关键字
 
+#define kEDBKeyJsonModelName   @"eko_jsonModelName_key_ignore"
+
 @interface EKOSQLiteMgr()
 
 @property (nonatomic, strong) NSMutableDictionary * sub_model_info;
@@ -121,6 +125,61 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 
 #pragma mark - private methods
 
+- (id)valueforModel:(id)model withProperyInfo:(EDBPropertyInfo *)propertyInfo{
+    id value = [model valueForKey:propertyInfo.name];
+    
+    if(!value){
+        switch (propertyInfo.type) {
+            case _Array:
+            case _Dictionary:{
+            }
+                break;
+            case _Data: {
+                
+            }
+                break;
+            case _Blob:{
+                
+            }
+                break;
+            case _String: {
+            }
+                break;
+            case _Number: {
+            }
+                break;
+            case _Model: {
+            }
+                break;
+            case _Int: {
+                value = @(((int64_t (*)(id, SEL))(void *) objc_msgSend)((id)model, propertyInfo.getter));
+            }
+                break;
+            case _Boolean: {
+                value = @(((Boolean (*)(id, SEL))(void *) objc_msgSend)((id)model, propertyInfo.getter));
+            }
+                break;
+            case _Char: {
+                value = @(((int8_t (*)(id, SEL))(void *) objc_msgSend)((id)model, propertyInfo.getter));
+            }
+                break;
+            case _Double: {
+                value = @(((double (*)(id, SEL))(void *) objc_msgSend)((id)model, propertyInfo.getter));
+            }
+                break;
+            case _Float: {
+                value = @(((float (*)(id, SEL))(void *) objc_msgSend)((id)model, propertyInfo.getter));
+            }
+                break;
+            default:
+                break;
+        }
+    }
+    
+    return value;
+}
+
+#pragma mark - NSData/NSValue/... to/from NSData/NString
 /**
  非基本类型的数据格式，转换成二进制之后再保存
 
@@ -154,6 +213,434 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return data;
 }
 
+- (NSString *)encodeDataToString:(NSData *)data{
+    if ([data isKindOfClass:[NSData class]]) {
+        data = [data base64EncodedDataWithOptions:0];
+        NSString *ret = [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding];
+    
+        return ret;
+    }
+    
+    return nil;
+}
+
+- (NSData *)decodeFromString:(NSString *)str{
+    if ([str isKindOfClass:[NSString class]]) {
+        NSData *data = [[NSData alloc] initWithBase64EncodedString:str options:NSDataBase64DecodingIgnoreUnknownCharacters];
+        return data;
+    }else{
+        return nil;
+    }
+}
+
+#pragma mark - NSArray/NSDictionary to/from JsonData
+- (id)toJsonDataFromModel:(id)model{
+    id jsonObject = nil;
+    if ([model isKindOfClass:[NSString class]] || [model isKindOfClass:[NSNumber class]]){
+        jsonObject = model;
+    }
+    else if([model isKindOfClass:[NSArray class]]){
+        jsonObject = [self toJsonDataFromArray:model];
+    }else if([model isKindOfClass:[NSDictionary class]]){
+        jsonObject = [self toJsonDataFromDictionary:model];
+    }else if([self isSupportClass:[model class]]){
+        jsonObject = [self archiveValue:model encode:YES]; //NSData
+    }else{
+        if([NSJSONSerialization isValidJSONObject:model]){
+            NSError *error = nil;
+            NSData *jsonData = [NSJSONSerialization dataWithJSONObject:model
+                                                               options:NSJSONWritingPrettyPrinted
+                                                                 error:&error];
+            
+            if ([jsonData length] > 0 && error == nil){
+                return jsonData;
+            }else{
+                return nil;
+            }
+        }else{
+            NSLog(@"格式错误！无法使用转存json保存");
+        }
+        //jsonObject = [self jsonObjectWithModel:model];
+    }
+    
+    return jsonObject;
+}
+
+- (id)toJsonDataFromArray:(NSArray *)array{
+    NSError *error = nil;
+    if([NSJSONSerialization isValidJSONObject:array]){
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:array
+                                                           options:NSJSONWritingPrettyPrinted
+                                                             error:&error];
+        
+        if ([jsonData length] > 0 && error == nil){
+            return jsonData;
+        }else{
+            return nil;
+        }
+    }else{
+        NSMutableArray* toArray = [NSMutableArray array];
+        NSInteger count = array.count;
+        for (NSInteger i = 0; i < count; i++){
+            id obj = [array objectAtIndex:i];
+            id jsonObject = [self jsonObjectWithModel:obj];
+            if(jsonObject){
+                [toArray addObject:jsonObject];
+            }
+        }
+        
+        if(toArray.count){
+            NSData *jsonData = [NSJSONSerialization dataWithJSONObject:toArray
+                                                               options:NSJSONWritingPrettyPrinted
+                                                                 error:&error];
+            
+            if ([jsonData length] > 0 && error == nil){
+                return jsonData;
+            }else{
+                return nil;
+            }
+        }
+    }
+    return nil;
+}
+
+- (id)toJsonDataFromDictionary:(NSDictionary *)dict{
+    if([NSJSONSerialization isValidJSONObject:dict]){
+        NSError *error = nil;
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:dict
+                                                           options:NSJSONWritingPrettyPrinted
+                                                             error:&error];
+        
+        if ([jsonData length] > 0 && error == nil){
+            return jsonData;
+        }else{
+            return nil;
+        }
+    }
+    else
+    {
+        NSMutableDictionary* toDic = [NSMutableDictionary dictionary];
+        NSArray* allKeys = dict.allKeys;
+        for (NSInteger i = 0; i<allKeys.count; i++)
+        {
+            NSString* key = [allKeys objectAtIndex:i];
+            id obj = [dict objectForKey:key];
+            id jsonObject = [self jsonObjectWithModel:obj];
+            if(jsonObject)
+            {
+                [toDic setObject:jsonObject forKey:key];
+            }
+        }
+        
+        if(toDic.count)
+        {
+            NSError *error = nil;
+            NSData *jsonData = [NSJSONSerialization dataWithJSONObject:toDic
+                                                               options:NSJSONWritingPrettyPrinted
+                                                                 error:&error];
+            
+            if ([jsonData length] > 0 && error == nil){
+                return jsonData;
+            }else{
+                return nil;
+            }
+        }
+    }
+    return nil;
+}
+
+//模型转成字典类型，使其可以进行保存
+- (id)jsonObjectWithArray:(NSArray *)array{
+    if (array) {
+        NSMutableArray *results = [NSMutableArray array];
+        for (id obj in array) {
+            id jsonObject = [self jsonObjectWithModel:obj];
+            if (jsonObject) {
+                [results addObject:jsonObject];
+            }
+        }
+        
+        return results;
+    }
+    
+    return nil;
+}
+- (id)jsonObjectWithDictionary:(NSDictionary *)dict{
+    if (dict) {
+        NSMutableDictionary *results = [NSMutableDictionary dictionary];
+        for (NSString *key in dict.allKeys) {
+            id obj = [dict valueForKey:key];
+            id jsonObject = [self jsonObjectWithModel:obj];
+            
+            if (jsonObject) {
+                [results setValue:jsonObject forKey:key];
+            }
+        }
+        
+        return results;
+    }
+    
+    return nil;
+}
+
+- (id)jsonObjectWithModel:(id)model{
+    if ([model isKindOfClass:[NSArray class]]) {
+        return [self jsonObjectWithArray:model];
+    }else if([model isKindOfClass:[NSDictionary class]]){
+        return [self jsonObjectWithDictionary:model];
+    }else if([self isSupportClass:[model class]]){
+        return model;
+    }
+    
+    NSDictionary *fields = [self parserModelObjectFieldsWithModelClass:[model class]];
+    //转换成字典可保存的数据
+    if ([fields count] > 0) {
+        NSMutableDictionary *results = [NSMutableDictionary dictionary];
+        for (NSString *field in fields.allKeys) {
+            EDBPropertyInfo *propertyInfo = fields[field];
+            
+            id value = [self valueforModel:model withProperyInfo:propertyInfo];
+            if (value) {
+                switch (propertyInfo.type) {
+                    case _Array:
+                    case _Dictionary:{
+                        if ([value isKindOfClass:[NSArray class]]) {
+                            value = [self jsonObjectWithArray:value];
+                        }else if([value isKindOfClass:[NSDictionary class]]){
+                            value = [self jsonObjectWithDictionary:value];
+                        }else{
+                            NSLog(@"value=%@ is invalid");
+                        }
+                    }
+                        break;
+                    case _Model:{
+                        value = [self jsonObjectWithModel:value];
+                    }
+                        break;
+                    case _Data:{
+                        value = [self encodeDataToString:value];
+                    }
+                        break;
+                    case _Blob:{
+                        //二进制数据需要转换之后才可以用
+                        value = [self archiveValue:value encode:YES];
+                        if (value) {
+                            value = [self encodeDataToString:value];
+                        }
+                    }
+                        break;
+                    default:
+                        break;
+                }
+            }
+            if (value) {
+                [results setValue:value forKey:field];
+            }
+        }
+        
+        if ([results count]>0) {
+            [results setValue:NSStringFromClass([model class]) forKey:kEDBKeyJsonModelName];
+        }
+        
+        return results;
+    }
+    
+    return nil;
+}
+
+- (id)modelFromJsonValue:(id)jsonValue{
+    NSError *error = nil;
+    id jsonObject = [NSJSONSerialization JSONObjectWithData:jsonValue
+                                                    options:NSJSONReadingAllowFragments
+                                                      error:&error];
+    
+    if (jsonObject != nil && error == nil){
+        if ([jsonObject isKindOfClass:[NSArray class]]) {
+            return [self modelFromArray:jsonObject];
+        }else if([jsonObject isKindOfClass:[NSDictionary class]]){
+            return [self modelFromDictionary:jsonObject];
+        }
+        return jsonObject;
+    }else{
+        // 解析错误
+        return nil;
+    }
+}
+
+- (id)modelFromArray:(NSArray *)array{
+    NSMutableArray *results = [NSMutableArray array];
+    for (id model in array) {
+        id result = nil;
+        if ([model isKindOfClass:[NSArray class]]) {
+            result = [self modelFromArray:model];
+        }else{
+            if([model isKindOfClass:[NSDictionary class]]){
+                id value = [model valueForKey:kEDBKeyJsonModelName];
+                if (value) {
+                    //这是转换之后的dict
+                    result = [self modelWithJsonModel:model];
+                }else{
+                    result = [self modelFromDictionary:model];
+                }
+            }else{
+                result = [self modelWithJsonModel:model];
+            }
+        }
+        
+        if (result) {
+            [results addObject:result];
+        }
+    }
+    return results;
+}
+
+- (id)modelFromDictionary:(NSDictionary *)dic{
+    NSMutableDictionary *results = [NSMutableDictionary dictionary];
+    for (NSString *key in dic.allKeys) {
+        id model = [dic objectForKey:key];
+        id result = nil;
+        
+        if ([model isKindOfClass:[NSArray class]]) {
+            result = [self modelFromArray:model];
+        }else {
+            if([model isKindOfClass:[NSDictionary class]]){
+                id value = [model valueForKey:kEDBKeyJsonModelName];
+                if (value) {
+                    result = [self modelWithJsonModel:model];
+                }else{
+                    result = [self modelFromDictionary:model];
+                }
+            }else{
+                result = [self modelWithJsonModel:model];
+            }
+        }
+        
+        if (result) {
+            [results setObject:result forKey:key];
+        }
+    }
+    
+    return results;
+}
+
+- (id)modelWithJsonModel:(id)jsonModel{
+    if ([jsonModel isKindOfClass:[NSDictionary class]]) {
+        NSString *clsName = [jsonModel valueForKey:kEDBKeyJsonModelName];
+        if (!clsName) {
+            NSLog(@"未设置ModelName");
+            return nil;
+        }
+        
+        Class cls = NSClassFromString(clsName);
+        id model = [[cls alloc] init];
+        
+        NSDictionary *fields = [self parserModelObjectFieldsWithModelClass:NSClassFromString(clsName)];
+        //转换成字典可保存的数据
+        if ([fields count] > 0) {
+            for (NSString *field in fields.allKeys) {
+                EDBPropertyInfo *propertyInfo = fields[field];
+                id value = [jsonModel valueForKey:field];
+                if (!value) {
+                    continue;
+                }
+                
+                switch (propertyInfo.type) {
+                    case _Array:
+                    case _Dictionary:{
+                        if ([value isKindOfClass:[NSArray class]]) {
+                            value = [self modelFromArray:value];
+                        }else if([value isKindOfClass:[NSDictionary class]]){
+                            value = [self modelFromDictionary:value];
+                        }else{
+                            NSLog(@"理论上不会存在这样的类型了，因为需要外面最上层做处理=%@",value);
+                        }
+                        if (value) {
+                            [model setValue:value forKey:field];
+                        }
+                    }
+                        break;
+                    case _Blob:{
+                        //首先需要进行解码
+                        id encoder = [self decodeFromString:value];
+                        
+                        id unarchive = [self archiveValue:encoder encode:NO];
+                        if (unarchive) {
+                            [model setValue:unarchive forKey:field];
+                        }else{
+                            NSLog(@"field=%@ decode failed",field);
+                        }
+                    }
+                        break;
+                    case _Number:
+                    case _String:
+                        [model setValue:value forKey:field];
+                        break;
+                    case _Data:{
+                        id encoder = [self decodeFromString:value];
+                        if (encoder) {
+                            [model setValue:encoder forKey:field];
+                        }
+                    }
+                        break;
+                    case _Model:{
+                        value = [self modelWithJsonModel:value];
+                        if (value) {
+                            [model setValue:value forKey:field];
+                        }
+                    }
+                        break;
+                    case _Int: {
+                        if ([value isKindOfClass:[NSNumber class]]) {
+                            int iValue = [value intValue];
+                            ((void (*)(id, SEL, int64_t))(void *) objc_msgSend)((id)model, propertyInfo.setter, iValue);
+                        }
+                    }
+                        break;
+                    case _Float: {
+                        if ([value isKindOfClass:[NSNumber class]]) {
+                            float iValue = [value floatValue];
+                            ((void (*)(id, SEL, float))(void *) objc_msgSend)((id)model, propertyInfo.setter, iValue);
+                        }
+                    }
+                        break;
+                    case _Double: {
+                        if ([value isKindOfClass:[NSNumber class]]) {
+                            float iValue = [value floatValue];
+                            ((void (*)(id, SEL, double))(void *) objc_msgSend)((id)model, propertyInfo.setter, iValue);
+                        }
+                    }
+                        break;
+                    case _Char: {
+                        if ([value isKindOfClass:[NSNumber class]]) {
+                            int iValue = [value intValue];
+                            ((void (*)(id, SEL, int))(void *) objc_msgSend)((id)model, propertyInfo.setter, iValue);
+                        }
+                    }
+                        break;
+                    case _Boolean: {
+                        if ([value isKindOfClass:[NSNumber class]]) {
+                            int iValue = [value intValue];
+                            ((void (*)(id, SEL, int))(void *) objc_msgSend)((id)model, propertyInfo.setter, iValue);
+                        }
+                    }
+                        break;
+                        
+                    default:
+                        break;
+                }
+            }
+            
+            return model;
+        }
+        
+        return nil;
+    }else{
+        NSLog(@"直接使用返回的value:（%@）",jsonModel);
+        return jsonModel;
+    }
+}
+
+#pragma mark - dynamic funcs
 - (id)performFunc:(NSString *)func forClass:(Class)cls{
     SEL selFunc = NSSelectorFromString(func);
     id result = nil;
@@ -334,6 +821,10 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             return EDB_Data;
         case _Blob:
             return EDB_Data;
+        case _Array:
+            return EDB_Data;
+        case _Dictionary:
+            return EDB_Data;
         default:
             break;
     }
@@ -381,7 +872,13 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             }else if (class_type == [NSData class]) {
                 EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Data propertyName:property_name_string];
                 [fields setObject:property_info forKey:property_name_string];
-            } else if ([self isSupportClass:class_type]) {
+            }else if(class_type == [NSArray class]){
+                EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Array propertyName:property_name_string];
+                [fields setObject:property_info forKey:property_name_string];
+            }else if(class_type == [NSDictionary class]){
+                EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Dictionary propertyName:property_name_string];
+                [fields setObject:property_info forKey:property_name_string];
+            }else if ([self isSupportClass:class_type]) {
                 NSLog(@"检查模型类异常数据类型(不支持类型：%@)[自定义类型需要实现encodeWithCoder/initWithCoder",class_type);
                 EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Blob propertyName:property_name_string];
                 [fields setObject:property_info forKey:property_name_string];
@@ -424,6 +921,12 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             [fields setObject:property_info forKey:key];
         }else if([value isKindOfClass:[NSData class]]){
             EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Data propertyName:key];
+            [fields setObject:property_info forKey:key];
+        }else if([value isKindOfClass:[NSArray class]]){
+            EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Array propertyName:key];
+            [fields setObject:property_info forKey:key];
+        }else if([value isKindOfClass:[NSDictionary class]]){
+            EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Dictionary propertyName:key];
             [fields setObject:property_info forKey:key];
         }else if([self isSupportClass:[value class]]){
             NSLog(@"type %@ not supported!",[value class]);
@@ -651,12 +1154,26 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                                     }
                                 }
                                     break;
+                                case _Array:
+                                case _Dictionary:{
+                                    int length = sqlite3_column_bytes(pp_stmt, column);
+                                    const void * blob = sqlite3_column_blob(pp_stmt, column);
+                                    if (blob) {
+                                        NSData * value = [NSData dataWithBytes:blob length:length];
+                                        id jsonModel = [self modelFromJsonValue:value];
+                                        
+                                        [new_model_object setValue:jsonModel forKey:old_field_name];
+                                    }else {
+                                        [new_model_object setValue:[NSData data] forKey:old_field_name];
+                                    }
+                                }
+                                    break;
                                 case _Blob:{
                                     int length = sqlite3_column_bytes(pp_stmt, column);
                                     const void * blob = sqlite3_column_blob(pp_stmt, column);
                                     if (blob) {
                                         NSData * value = [NSData dataWithBytes:blob length:length];
-                                        NSData *data = [self archiveValue:value encode:YES];
+                                        NSData *data = [self archiveValue:value encode:NO];
                                         
                                         [new_model_object setValue:data forKey:old_field_name];
                                     }else {
@@ -783,6 +1300,8 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             case _Data:
             case _String:
             case _Char:
+            case _Array:
+            case _Dictionary:
                 [sql appendString:@"DEFAULT NULL"];
                 break;
             case _Boolean:
@@ -854,6 +1373,8 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 case _Data:
                 case _String:
                 case _Char:
+                case _Array:
+                case _Dictionary:
                     create_table_sql = [create_table_sql stringByAppendingString:@"NULL,"];
                     break;
                 case _Boolean:
@@ -1022,6 +1543,8 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 [value_array addObject:value];
             }else {
                 switch (property_info.type) {
+                    case _Array:
+                    case _Dictionary:
                     case _Blob:
                     case _Data: {
                         [value_array addObject:[NSData data]];
@@ -1110,6 +1633,17 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 switch (property_info.type) {
                     case _Data:
                         sqlite3_bind_blob(pp_stmt, index, [value bytes], (int)[value length], SQLITE_TRANSIENT);
+                        break;
+                    case _Array:
+                    case _Dictionary:{
+                        NSLog(@"value:%@",value);
+                        NSData *data = [self toJsonDataFromModel:value];
+                        if (data) {
+                            sqlite3_bind_blob(pp_stmt, index, [data bytes], (int)[data length], SQLITE_TRANSIENT);
+                        }else{
+                            NSLog(@"数据格式错误，无法保存数据：%@",value);
+                        }
+                    }
                         break;
                     case _Blob:{
                         NSLog(@"value:%@",value);
@@ -1367,6 +1901,18 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                         }
                     }
                         break;
+                    case _Array:
+                    case _Dictionary:{
+                        int length = sqlite3_column_bytes(pp_stmt, column);
+                        const void * blob = sqlite3_column_blob(pp_stmt, column);
+                        if (blob != NULL) {
+                            NSData * value = [NSData dataWithBytes:blob length:length];
+                            id jsonObjct = [self modelFromJsonValue:value];
+                            
+                            [model_object setValue:jsonObjct forKey:field_name];
+                        }
+                    }
+                        break;
                     case _Blob:{
                         int length = sqlite3_column_bytes(pp_stmt, column);
                         const void * blob = sqlite3_column_blob(pp_stmt, column);
@@ -1541,15 +2087,6 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     if( sqlite3_prepare_v2(_edb_database, [sql UTF8String], -1, &stmt, NULL) == SQLITE_OK ){
         while(sqlite3_step(stmt) == SQLITE_ROW){
             int cols = sqlite3_column_count(stmt);
-//            for (int idx = 0; idx<cols; idx++) {
-//                NSString *name = [NSString stringWithFormat:@"%s", sqlite3_column_text(stmt, idx)];
-//                
-//                //to lowerCase
-//                name = [name lowercaseString];
-//                
-//                [results addObject:name];
-//            }
-//            break;
             if (cols>1) {
                 NSString *name = [NSString stringWithFormat:@"%s", sqlite3_column_text(stmt, 1)];
                 if (lowerCase == 1) {
@@ -1634,6 +2171,18 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                         }
                     }
                     iResult = sqlite3_bind_text(pp_stmt, index, [value UTF8String], -1, SQLITE_TRANSIENT);
+                }
+                    break;
+                case _Array:
+                case _Dictionary:{
+                    id value = [model valueForKey:field];
+                    
+                    NSData *data = [self toJsonDataFromModel:value];
+                    if (data) {
+                        iResult = sqlite3_bind_blob(pp_stmt, index, [data bytes], (int)[data length], SQLITE_TRANSIENT);
+                    }else{
+                        NSLog(@"数据格式错误，无法保存数据：%@",value);
+                    }
                 }
                     break;
                 case _Blob:{
@@ -2166,7 +2715,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
     @autoreleasepool {
         [self.sub_model_info removeAllObjects];
-        [self deleteModel:cls where:where];
+        [self deleteModelClass:cls where:where];
     }
     dispatch_semaphore_signal(self.dsema);
     

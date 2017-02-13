@@ -26,10 +26,12 @@
 
 @end
 
-@interface TestModelFirst : NSObject<NSCoding>
+@interface TestModelFirst : NSObject
 
 @property (nonatomic, retain) NSString *n1;
 @property (nonatomic, retain) NSString *u1;
+
+@property (nonatomic, assign) NSInteger flag;
 
 @end
 
@@ -42,6 +44,8 @@
 @property (nonatomic, retain) TestModelFirst *first;
 
 @property (nonatomic, strong) NSArray *firsts; //数组
+
+@property (nonatomic, strong) NSDictionary *dicts;
 
 @end
 
@@ -169,8 +173,8 @@
 }
 
 - (void)testDBQueryNull{
-    //NSArray *results = [self.mgr queryByClass:nil];
-    NSArray *results = [self.mgr queryByClass:[TestModelThird class]];
+    NSArray *results = [self.mgr queryByClass:nil];
+    //NSArray *results = [self.mgr queryByClass:[TestModelThird class]];
     
     XCTAssertTrue(results.count<=0);
 }
@@ -210,13 +214,31 @@
     model.first.n1 = @"n1";
     model.first.u1 = @"u1";
     
-    TestModelFirst *first1,*first2;
-    first1 = [[TestModelFirst alloc] init];
-    first2 = [[TestModelFirst alloc] init];
-    first1.n1 = @"array_n1";
-    first2.n1 = @"array_n2";
+    TestModelSecond *first1,*first2;
+    first1 = [[TestModelSecond alloc] init];
+    first2 = [[TestModelSecond alloc] init];
+    first1.n2 = @"array_n1";
+    first2.n2 = @"array_n2";
+    //first2.flag = 2;
+    first1.first = [[TestModelFirst alloc] init];
+    first1.first.n1 = @"n2_first_n1";
+    
+    TestModelSecond *second = [[TestModelSecond alloc] init];
+    second.n2 = @"second_n2";
+    first1.firsts = @[second];
     
     model.firsts = @[first1,first2];
+    //model.firsts = @[@{@"first1":first1,@"first2":first2}];
+    
+    TestModelFirst *first3 = [[TestModelFirst alloc] init];
+    first3.n1 = @"dict_n3";
+    
+    NSArray *a3 = @[first1,first2,first3];
+    
+    //model.dicts = @{@"dict":first3};
+    model.dicts = @{@"dict":a3};
+    
+    //model.dicts = @{@"dict":@{@"embedDictKey":@"embedValue"}};
     
     [self testModel:model];
 }
@@ -352,7 +374,7 @@
 - (instancetype)init{
     self = [super init];
     if (self) {
-        self.error = [NSError errorWithDomain:@"test_database" code:@"0" userInfo:nil];
+        self.error = [NSError errorWithDomain:@"test_database" code:0 userInfo:nil];
     }
     
     return self;
@@ -382,20 +404,20 @@
 
 @implementation TestModelFirst
 
-- (void)encodeWithCoder:(NSCoder *)aCoder{
-    [aCoder encodeObject:self.n1 forKey:@"n1"];
-    [aCoder encodeObject:self.u1 forKey:@"u1"];
-}
-
-- (id)initWithCoder:(NSCoder *)aDecoder{
-    self = [super init];
-    if (self) {
-        self.n1 = [aDecoder decodeObjectForKey:@"n1"];
-        self.u1 = [aDecoder decodeObjectForKey:@"u1"];
-    }
-    
-    return self;
-}
+//- (void)encodeWithCoder:(NSCoder *)aCoder{
+//    [aCoder encodeObject:self.n1 forKey:@"n1"];
+//    [aCoder encodeObject:self.u1 forKey:@"u1"];
+//}
+//
+//- (id)initWithCoder:(NSCoder *)aDecoder{
+//    self = [super init];
+//    if (self) {
+//        self.n1 = [aDecoder decodeObjectForKey:@"n1"];
+//        self.u1 = [aDecoder decodeObjectForKey:@"u1"];
+//    }
+//    
+//    return self;
+//}
 
 @end
 

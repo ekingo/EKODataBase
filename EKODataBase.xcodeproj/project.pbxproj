@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		4AD9EF09895605CB7EC51426 /* libPods-EKODataBaseTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 88F35B19D54FE819E2A01B16 /* libPods-EKODataBaseTests.a */; };
 		DC10A3F41E45787A002564B4 /* readme.txt in Resources */ = {isa = PBXBuildFile; fileRef = DC10A3F31E45787A002564B4 /* readme.txt */; };
-		DC5794F01E4EAFF6008243E7 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DCBC46511E38825B004266E6 /* libsqlite3.tbd */; };
 		DCBC46401E387DFC004266E6 /* EKODataBase.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DCBC46361E387DFC004266E6 /* EKODataBase.framework */; };
 		DCBC46451E387DFC004266E6 /* EKODataBaseTests.m in Sources */ = {isa = PBXBuildFile; fileRef = DCBC46441E387DFC004266E6 /* EKODataBaseTests.m */; };
 		DCBC46471E387DFC004266E6 /* EKODataBase.h in Headers */ = {isa = PBXBuildFile; fileRef = DCBC46391E387DFC004266E6 /* EKODataBase.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -51,7 +50,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DC5794F01E4EAFF6008243E7 /* libsqlite3.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,5 +1,8 @@
 更新记录
 
+0.0.6
+支持NSArray和NSDictionary嵌套写入（不再需要实现encodeWithCoder和initWithDecoder）；
+
 0.0.5
 支持过滤属性字段（添加黑名单）[eko_ignoreProperties]
 支持是否包含父类属性（默认包含）
@@ -22,6 +25,14 @@
 支持数据库按版本自动迁移；
 
 说明
+支持保存数据格式：
+基础类型：int,float,double,char;
+NSString;
+NSNumber;
+NSData;
+NSError/NSValue/NSSet/NSDate: 自定义类需要实现encodeWithCoder/initWithDecoder;
+NSArray;
+NSDictionary;
 /*
 
 //数据模型:
