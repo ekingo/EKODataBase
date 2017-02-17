@@ -19,8 +19,11 @@
 @property (nonatomic, retain) NSString *nameId;
 
 @property (nonatomic, assign) NSInteger flag;
+@property (nonatomic, assign) BOOL bFlag;
 
 @property (nonatomic, strong) NSError *error;
+
+@property (nonatomic, strong) NSArray<NSString *> *array;
 
 + (NSString *)VERSION;
 
@@ -118,6 +121,9 @@
     TestModel *model = [[TestModel alloc] init];
     model.name = @"test";
     model.telphone = @"123456789";
+    model.flag = 1;
+    model.bFlag = NO;
+    model.array = @[@"1",@"2"];
     
     EKOSError error = [self.mgr insertModel:model];
     NSLog(@"error=%ld",(long)error);
@@ -166,7 +172,7 @@
 }
 
 - (void)testDBQuery{
-    NSArray *results = [self.mgr queryByClass:[TestModel class] where:@"name = 'test'"];
+    NSArray *results = [self.mgr queryByClass:[TestModel class] where:/*@"name = 'test'"*/@{@"name":@"test"}];
     [results enumerateObjectsUsingBlock:^(TestModel *obj,NSUInteger idx,BOOL *stop){
         NSLog(@"%ld:queryed obj:%@,%@\r",idx,obj.name,obj.telphone);
     }];
@@ -355,6 +361,31 @@
     NSArray *tests = [self.mgr queryByClass:[TestModelSecond class]];
     
     XCTAssertTrue(result>0);
+}
+
+- (void)testDeleteSubModel{
+    
+    //[self.mgr removeByClass:[TestModelSecond class]];
+    
+    TestModelSecond *second = [[TestModelSecond alloc] init];
+    second.userId = @"deleteSubModel2";
+    second.first = [[TestModelFirst alloc] init];
+    second.first.n1 = @"delete_first";
+    
+    [self.mgr insertModel:second];
+    
+    [self.mgr removeByClass:[TestModelFirst class]];
+    
+    NSArray *firsts = [self.mgr queryByClass:[TestModelFirst class]];
+    
+    XCTAssertTrue([firsts count]<=0);
+    
+    second.first.n1 = @"deleted_first_after";
+    [self.mgr updateModel:second];
+    
+    NSArray *results = [self.mgr queryByClass:[TestModelSecond class]];
+    
+    XCTAssertTrue([results count]>0);
 }
 
 #pragma mark - getters

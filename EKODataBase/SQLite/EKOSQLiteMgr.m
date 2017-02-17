@@ -62,8 +62,14 @@ typedef NS_OPTIONS(NSInteger, EDB_QueryType) {
     if (self) {
         _name = property_name.mutableCopy;
         _type = type;
-        _setter = NSSelectorFromString([NSString stringWithFormat:@"set%@%@:",[property_name substringToIndex:1].uppercaseString,[property_name substringFromIndex:1]]);
-        _getter = NSSelectorFromString(property_name);
+        if (property_name.length>0) {
+            if (property_name.length>1) {
+                _setter = NSSelectorFromString([NSString stringWithFormat:@"set%@%@:",[property_name substringToIndex:1].uppercaseString,[property_name substringFromIndex:1]]);
+            }else{
+                _setter = NSSelectorFromString([NSString stringWithFormat:@"set%@:",[property_name substringToIndex:1].uppercaseString]);
+            }
+            _getter = NSSelectorFromString(property_name);
+        }
     }
     
     return self;
@@ -249,7 +255,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         if([NSJSONSerialization isValidJSONObject:model]){
             NSError *error = nil;
             NSData *jsonData = [NSJSONSerialization dataWithJSONObject:model
-                                                               options:NSJSONWritingPrettyPrinted
+                                                               options:0
                                                                  error:&error];
             
             if ([jsonData length] > 0 && error == nil){
@@ -270,7 +276,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     NSError *error = nil;
     if([NSJSONSerialization isValidJSONObject:array]){
         NSData *jsonData = [NSJSONSerialization dataWithJSONObject:array
-                                                           options:NSJSONWritingPrettyPrinted
+                                                           options:0
                                                              error:&error];
         
         if ([jsonData length] > 0 && error == nil){
@@ -291,7 +297,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         
         if(toArray.count){
             NSData *jsonData = [NSJSONSerialization dataWithJSONObject:toArray
-                                                               options:NSJSONWritingPrettyPrinted
+                                                               options:0
                                                                  error:&error];
             
             if ([jsonData length] > 0 && error == nil){
@@ -308,7 +314,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     if([NSJSONSerialization isValidJSONObject:dict]){
         NSError *error = nil;
         NSData *jsonData = [NSJSONSerialization dataWithJSONObject:dict
-                                                           options:NSJSONWritingPrettyPrinted
+                                                           options:0
                                                              error:&error];
         
         if ([jsonData length] > 0 && error == nil){
@@ -336,7 +342,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         {
             NSError *error = nil;
             NSData *jsonData = [NSJSONSerialization dataWithJSONObject:toDic
-                                                               options:NSJSONWritingPrettyPrinted
+                                                               options:0
                                                                  error:&error];
             
             if ([jsonData length] > 0 && error == nil){
@@ -409,7 +415,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                         }else if([value isKindOfClass:[NSDictionary class]]){
                             value = [self jsonObjectWithDictionary:value];
                         }else{
-                            NSLog(@"value=%@ is invalid");
+                            NSLog(@"value=%@ is invalid",value);
                         }
                     }
                         break;
@@ -671,27 +677,22 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     
     NSArray *primaryKeys = [self performFunc:kUnionPrimaryKeys forClass:[model class]];
     if ([primaryKeys count]>0) {
+        NSMutableDictionary *where = [NSMutableDictionary dictionary];
         for (NSString *key in primaryKeys) {
             id value = [model valueForKey:key];
-            //TODO:value需要做类型判断以及转换
             if (value) {
-                if (sql.length>0) {
-                    [sql appendString:@" and "];
-                }
-                
-                if ([value isKindOfClass:[NSNumber class]]) {
-                    [sql appendString:[NSString stringWithFormat:@"%@=%@",key,value]];
-                }else{
-                    [sql appendString:[NSString stringWithFormat:@"%@=\'%@\'",key,value]];
-                }
+                [where setValue:value forKey:key];
             }
         }
+        
+        sql = [self genSQLWithWhere:where];
     }
     
     return sql;
 }
 
 //model可以生产的where语句
+#pragma mark - sql
 - (NSString *)allPrimaryKeyWhereSQLForModel:(id)model{
     NSString *where = nil;
     
@@ -710,6 +711,31 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     }while(0);
     
     return where;
+}
+
+- (NSString *)genSQLWithWhere:(id)where{
+    NSMutableString *sql = [NSMutableString stringWithString:@""];
+    if ([where isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)where;
+        for (NSString *key in dict.allKeys) {
+            id value = [dict valueForKey:key];
+            if (sql.length>0) {
+                [sql appendString:@" and "];
+            }
+            
+            if ([value isKindOfClass:[NSNumber class]]) {
+                [sql appendString:[NSString stringWithFormat:@"%@=%@",key,value]];
+            }else{
+                [sql appendString:[NSString stringWithFormat:@"%@=\'%@\'",key,value]];
+            }
+        }
+    }else if([where isKindOfClass:[NSString class]]){
+        sql = where;
+    }else{
+        NSLog(@"where=%@语句有错误！",where);
+    }
+    
+    return sql;
 }
 
 - (NSDictionary *)removePrimaryKeyFields:(NSDictionary *)fields forModel:(id)model{
@@ -1676,8 +1702,8 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                     case _Int:
                         sqlite3_bind_int64(pp_stmt, index, (sqlite3_int64)[value longLongValue]);
                         break;
-                    case _Boolean:
-                        sqlite3_bind_int(pp_stmt, index, [value boolValue]);
+                    case _Boolean: //BOOL类型使用int保存
+                        sqlite3_bind_int(pp_stmt, index, [value intValue]);
                         break;
                     case _Char:
                         sqlite3_bind_int(pp_stmt, index, [value intValue]);
@@ -1765,6 +1791,28 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         [self closeDatabase];
     }
     return _id;
+}
+
+- (sqlite_int64)commonInsertSubModel:(id)subModel forModel:(id)model where:(NSString *)where subField:(NSString *)field_name{
+    sqlite_int64 idx = [self commonInsertSubModelObject:subModel];
+    if (idx > 0) {
+        NSString *_idSub = [self performFunc:kDefaultPrimaryKey forModel:subModel];
+        if (!_idSub) {
+            _idSub = [NSString stringWithFormat:@"%ld",(long)idx];
+        }
+        
+        if ([self openTable:[model class]]) {
+            NSString *sql = [NSString stringWithFormat:@"update %@ set %@=%@",[model class],field_name,_idSub];
+            if (where && where.length>0) {
+                sql = [sql stringByAppendingString:[NSString stringWithFormat:@" where %@",where]];
+            }
+            [self execSql:sql];
+            
+            [self closeDatabase];
+        }
+    }
+    
+    return idx;
 }
 
 - (sqlite_int64)insertModelObject:(id)model_object {
@@ -2138,10 +2186,17 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             }
         }
     }];
+    
+    if ([update_field_array count]<=0) {
+        NSLog(@"Update %@ empty",model);
+        return iRes;
+    }
+    
     update_sql = [update_sql substringWithRange:NSMakeRange(0, update_sql.length - 1)];
     if (where != nil && where.length > 0) {
         update_sql = [update_sql stringByAppendingFormat:@" WHERE %@", where];
     }
+    
     if (sqlite3_prepare_v2(_edb_database, [update_sql UTF8String], -1, &pp_stmt, nil) == SQLITE_OK) {
         __block int iResult = SQLITE_OK;
         
@@ -2247,7 +2302,8 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         
         iRes = iResult;
         
-        if(sqlite3_step(pp_stmt) != SQLITE_DONE){
+        iResult = sqlite3_step(pp_stmt);
+        if(iResult != SQLITE_DONE){
             iRes = sqlite3_finalize(pp_stmt);
         }
     }else {
@@ -2326,25 +2382,26 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 if ([_id integerValue] == kNoHandleKeyId && subModel) {
                     NSLog(@"还未写入数据，应该是先insert！");
                     
-                    sqlite_int64 idx = [self commonInsertSubModelObject:subModel];
-                    if (idx > 0) {
-                        NSString *_idSub = [self performFunc:kDefaultPrimaryKey forModel:subModel];
-                        if (!_idSub) {
-                            _idSub = [NSString stringWithFormat:@"%ld",(long)idx];
-                        }
+                    [self commonInsertSubModel:subModel forModel:model_object where:where subField:field_name];
+                }else{
+                    id subModel = [model_object valueForKey:field_name];
+                    NSString *subWhere = [NSString stringWithFormat:@"_id = %@",_id];
+                    int iRowCount = 0;
+                    if ([self openTable:[subModel class]]) {
+                        iRowCount = [self commonQueryCountForModelClass:[subModel class] where:where];
                         
-                        if ([self openTable:[model_object class]]) {
-                            NSString *sql = [NSString stringWithFormat:@"update %@ set %@=%@",[model_object class],field_name,_idSub];
-                            if (where && where.length>0) {
-                                sql = [sql stringByAppendingString:[NSString stringWithFormat:@" where %@",where]];
-                            }
-                            [self execSql:sql];
-                            
-                            [self closeDatabase];
+                        [self closeDatabase];
+                    }
+                    
+                    if (iRowCount>1) {
+                        [self updateCommonModel:subModel where:subWhere replaceNil:replaceNil];
+                    }else{
+                        //更新失败，插入数据库
+                        sqlite3_int64 idx = [self commonInsertSubModel:subModel forModel:model_object where:where subField:field_name];
+                        if(idx<=0){
+                            NSLog(@"update subModel:%@ failed",subModel);
                         }
                     }
-                }else{
-                    [self updateCommonModel:[model_object valueForKey:field_name] where:[NSString stringWithFormat:@"_id = %@",_id] replaceNil:replaceNil];
                 }
             }];
         }];
@@ -2479,7 +2536,12 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 - (instancetype)initWithDataBaseDir:(NSString *)dir{
     self = [self init];
     if (self) {
-        self.dbWorkSpace = dir;
+        if (![dir hasSuffix:@"/"]) {
+            //分割符
+            self.dbWorkSpace = [dir stringByAppendingString:@"/"];
+        }else{
+            self.dbWorkSpace = dir;
+        }
     }
     
     return self;
@@ -2627,8 +2689,8 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return EKOSErrorNone;
 }
 
-- (NSArray *)queryByClass:(Class)cls where:(NSString *)where order:(NSString *)order limit:(NSString *)limit{
-    return [self queryModel:cls conditions:@[where == nil ? @"" : where,
+- (NSArray *)queryByClass:(Class)cls where:(id)where order:(NSString *)order limit:(NSString *)limit{
+    return [self queryModel:cls conditions:@[where == nil ? @"" : [self genSQLWithWhere:where],
                                                      order == nil ? @"" : order,
                                                      limit == nil ? @"" : limit] queryType:_WhereOrderLimit];
 }
@@ -2636,16 +2698,16 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return [self queryModel:cls conditions:@[order == nil ? @"" : order,
                                              limit == nil ? @"" : limit] queryType:_OrderLimit];
 }
-- (NSArray *)queryByClass:(Class)cls where:(NSString *)where order:(NSString *)order{
-    return [self queryModel:cls conditions:@[where == nil ? @"" : where,
+- (NSArray *)queryByClass:(Class)cls where:(id)where order:(NSString *)order{
+    return [self queryModel:cls conditions:@[where == nil ? @"" : [self genSQLWithWhere:where],
                                                      order == nil ? @"" : order] queryType:_WhereOrder];
 }
-- (NSArray *)queryByClass:(Class)cls where:(NSString *)where limit:(NSString *)limit{
-    return [self queryModel:cls conditions:@[where == nil ? @"" : where,
+- (NSArray *)queryByClass:(Class)cls where:(id)where limit:(NSString *)limit{
+    return [self queryModel:cls conditions:@[where == nil ? @"" : [self genSQLWithWhere:where],
                                                      limit == nil ? @"" : limit] queryType:_WhereLimit];
 }
-- (NSArray *)queryByClass:(Class)cls where:(NSString *)where{
-    return [self queryModel:cls conditions:@[where == nil ? @"" : where] queryType:_Where];
+- (NSArray *)queryByClass:(Class)cls where:(id)where{
+    return [self queryModel:cls conditions:@[where == nil ? @"" : [self genSQLWithWhere:where]] queryType:_Where];
 }
 - (NSArray *)queryByClass:(Class)cls limit:(NSString *)limit{
     return [self queryModel:cls conditions:@[limit == nil ? @"" : limit] queryType:_Limit];
@@ -2656,6 +2718,34 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 
 - (NSArray *)queryByClass:(Class)cls{
     return [self queryByClass:cls where:nil];
+}
+
+- (NSArray *)queryByClass:(Class)cls withFields:(NSDictionary *)fields{
+    NSString *where = [self genSQLWithWhere:fields];
+    
+    if (where) {
+        return [self queryByClass:cls where:where];
+    }
+    
+    return nil;
+}
+
+- (id)querySingleByClass:(Class)cls where:(id)where{
+    NSArray *results = [self queryByClass:cls where:where limit:@"1"];
+    if (results.count>0) {
+        return [results objectAtIndex:0];
+    }
+    
+    return nil;
+}
+
+- (id)querySingleByClass:(Class)cls where:(id)where order:(NSString *)order{
+    NSArray *results = [self queryByClass:cls where:where order:order limit:@"1"];
+    if (results.count>0) {
+        return [results objectAtIndex:0];
+    }
+    
+    return nil;
 }
 
 - (NSInteger)queryCountByClass:(Class)cls where:(NSString *)where{

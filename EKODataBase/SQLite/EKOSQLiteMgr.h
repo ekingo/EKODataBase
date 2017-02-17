@@ -78,12 +78,12 @@ typedef NS_ENUM(NSInteger,EKOSError) {
 
 //插入数据
 - (NSArray *)queryByClass:(Class)cls;
-- (NSArray *)queryByClass:(Class)cls where:(NSString *)where;
+- (NSArray *)queryByClass:(Class)cls where:(id)where;
 - (NSArray *)queryByClass:(Class)cls order:(NSString *)order;
 - (NSArray *)queryByClass:(Class)cls limit:(NSString *)limit;
-- (NSArray *)queryByClass:(Class)cls where:(NSString *)where order:(NSString *)order;
+- (NSArray *)queryByClass:(Class)cls where:(id)where order:(NSString *)order;
 - (NSArray *)queryByClass:(Class)cls order:(NSString *)order limit:(NSString *)limit;
-- (NSArray *)queryByClass:(Class)cls where:(NSString *)where limit:(NSString *)limit;
+- (NSArray *)queryByClass:(Class)cls where:(id)where limit:(NSString *)limit;
 /**
  查询数据
 
@@ -95,6 +95,33 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  */
 - (NSArray *)queryByClass:(Class)cls where:(NSString *)where order:(NSString *)order limit:(NSString *)limit;
 
+/**
+ 查询一条数据模型
+
+ @param cls 类名
+ @param where 条件
+ @return object or nil
+ */
+- (id)querySingleByClass:(Class)cls where:(id)where;
+- (id)querySingleByClass:(Class)cls where:(id)where order:(NSString *)order;
+
+/**
+ 通过字段相关设置查询
+
+ @param cls 类名
+ @param fields 字段属性列表
+ @return 数据列表
+ */
+- (NSArray *)queryByClass:(Class)cls withFields:(NSDictionary *)fields;
+
+
+/**
+ 查询行数
+
+ @param cls 类名
+ @param where 条件语句
+ @return count
+ */
 - (NSInteger)queryCountByClass:(Class)cls where:(NSString *)where;
 
 
