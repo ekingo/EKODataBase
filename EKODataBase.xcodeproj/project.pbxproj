@@ -14,6 +14,8 @@
 		DCBC46471E387DFC004266E6 /* EKODataBase.h in Headers */ = {isa = PBXBuildFile; fileRef = DCBC46391E387DFC004266E6 /* EKODataBase.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		DCBC46561E388283004266E6 /* EKOSQLiteMgr.h in Headers */ = {isa = PBXBuildFile; fileRef = DCBC46541E388283004266E6 /* EKOSQLiteMgr.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		DCBC46571E388283004266E6 /* EKOSQLiteMgr.m in Sources */ = {isa = PBXBuildFile; fileRef = DCBC46551E388283004266E6 /* EKOSQLiteMgr.m */; };
+		DCFCE5261EC4045F003E17C2 /* EKOSQLiteMgr+Async.h in Headers */ = {isa = PBXBuildFile; fileRef = DCFCE5241EC4045F003E17C2 /* EKOSQLiteMgr+Async.h */; };
+		DCFCE5271EC4045F003E17C2 /* EKOSQLiteMgr+Async.m in Sources */ = {isa = PBXBuildFile; fileRef = DCFCE5251EC4045F003E17C2 /* EKOSQLiteMgr+Async.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,6 +44,8 @@
 		DCBC46511E38825B004266E6 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		DCBC46541E388283004266E6 /* EKOSQLiteMgr.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = EKOSQLiteMgr.h; sourceTree = "<group>"; };
 		DCBC46551E388283004266E6 /* EKOSQLiteMgr.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = EKOSQLiteMgr.m; sourceTree = "<group>"; };
+		DCFCE5241EC4045F003E17C2 /* EKOSQLiteMgr+Async.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "EKOSQLiteMgr+Async.h"; sourceTree = "<group>"; };
+		DCFCE5251EC4045F003E17C2 /* EKOSQLiteMgr+Async.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "EKOSQLiteMgr+Async.m"; sourceTree = "<group>"; };
 		FE6B3D4C6BD56F7F173AACC9 /* libPods-EKODataBase.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-EKODataBase.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -100,6 +104,7 @@
 		DCBC46381E387DFC004266E6 /* EKODataBase */ = {
 			isa = PBXGroup;
 			children = (
+				DCFCE5231EC4045E003E17C2 /* Async */,
 				DCBC46531E388264004266E6 /* SQLite */,
 				DCBC46391E387DFC004266E6 /* EKODataBase.h */,
 				DCBC463A1E387DFC004266E6 /* Info.plist */,
@@ -135,6 +140,15 @@
 			path = SQLite;
 			sourceTree = "<group>";
 		};
+		DCFCE5231EC4045E003E17C2 /* Async */ = {
+			isa = PBXGroup;
+			children = (
+				DCFCE5241EC4045F003E17C2 /* EKOSQLiteMgr+Async.h */,
+				DCFCE5251EC4045F003E17C2 /* EKOSQLiteMgr+Async.m */,
+			);
+			path = Async;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -142,6 +156,7 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DCFCE5261EC4045F003E17C2 /* EKOSQLiteMgr+Async.h in Headers */,
 				DCBC46561E388283004266E6 /* EKOSQLiteMgr.h in Headers */,
 				DCBC46471E387DFC004266E6 /* EKODataBase.h in Headers */,
 			);
@@ -300,6 +315,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DCBC46571E388283004266E6 /* EKOSQLiteMgr.m in Sources */,
+				DCFCE5271EC4045F003E17C2 /* EKOSQLiteMgr+Async.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

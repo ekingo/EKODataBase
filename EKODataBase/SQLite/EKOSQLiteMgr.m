@@ -12,6 +12,14 @@
 #import <objc/message.h>
 #import <sqlite3.h>
 
+#define kEnableUsingFMDB  0
+
+#define kAutoRelease    @autoreleasepool
+
+#if kEnableUsingFMDB
+#import <FMDB/FMDB.h>
+#endif
+
 #define  EDB_String    (@"TEXT")
 #define  EDB_Int       (@"INTERGER")
 #define  EDB_Boolean   (@"INTERGER")
@@ -78,7 +86,10 @@ typedef NS_OPTIONS(NSInteger, EDB_QueryType) {
 @end
 
 #pragma mark - EKOSQLiteMgr
-static sqlite3 *_edb_database;
+
+static EKOSQLiteMgr *staticSQLiteMgr    = nil;
+#define kDefaultEKOSQLiteDir   [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject] stringByAppendingPathComponent:@"EKODataBase"]
+
 static NSInteger kNoHandleKeyId = -2;
 
 //默认所有类的加密密匙
@@ -94,19 +105,33 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 
 #define kEDBKeyJsonModelName   @"eko_jsonModelName_key_ignore"
 
-@interface EKOSQLiteMgr()
+//static pthread_mutex_t pLock;
+
+@interface EKOSQLiteMgr(){
+#if kEnableUsingFMDB == 0
+    sqlite3 *_edb_database;
+#endif
+}
 
 @property (nonatomic, strong) NSMutableDictionary * sub_model_info;
-#if OS_OBJECT_HAVE_OBJC_SUPPORT
-@property (nonatomic, strong) dispatch_semaphore_t dsema;
-#else
-@property (nonatomic, assign) dispatch_semaphore_t dsema;
+//#if OS_OBJECT_HAVE_OBJC_SUPPORT
+//@property (nonatomic, strong) dispatch_semaphore_t dsema;
+//#else
+//@property (nonatomic, assign) dispatch_semaphore_t dsema;
+//#endif
+
+#if kEnableUsingFMDB
+@property (nonatomic, strong)  FMDatabase  *usingdb;
+@property (nonatomic, strong)  FMDatabaseQueue *bindingQueue;
 #endif
 
-//@property (nonatomic, strong) sqlite3 *
+@property (nonatomic, strong) NSRecursiveLock *lock;
+
 @property (nonatomic, copy) NSString *dbWorkSpace;
 
 @property (nonatomic, strong) NSMutableDictionary *encryptKeys; //不同modelClass可能对应不同的加密方式
+
+@property (nonatomic, strong) NSOperationQueue *operationQueue;
 
 @end
 
@@ -117,16 +142,27 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     self = [super init];
     if (self) {
         self.sub_model_info = [NSMutableDictionary dictionary];
-        self.dsema = dispatch_semaphore_create(1);
+        //self.dsema = dispatch_semaphore_create(1);
+        
+        self.lock = [NSRecursiveLock new];
+        
+        sqlite3_config(SQLITE_CONFIG_MULTITHREAD);
+        sqlite3_config(SQLITE_CONFIG_MEMSTATUS,0);
+        
+        //pthread_mutex_init(&pLock, NULL);
+        
+//        pthread_mutexattr_t attr;
+//        pthread_mutexattr_init(&attr); //初始化attr并且给它赋予默认
+//        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE); //设置锁类型，这边是设置为递归锁
+//        pthread_mutex_init(&pLock, &attr);
+//        pthread_mutexattr_destroy(&attr); //销毁一个属性对象，在重新进行初始化之前该结构不能重新使用
     }
     
     return self;
 }
 
 - (void)dealloc{
-    if (_edb_database) {
-        [self closeDatabase];
-    }
+    [self closeDatabase];
 }
 
 #pragma mark - private methods
@@ -905,7 +941,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Dictionary propertyName:property_name_string];
                 [fields setObject:property_info forKey:property_name_string];
             }else if ([self isSupportClass:class_type]) {
-                NSLog(@"检查模型类异常数据类型(不支持类型：%@)[自定义类型需要实现encodeWithCoder/initWithCoder",class_type);
+//                NSLog(@"检查模型类异常数据类型(不支持类型：%@)[自定义类型需要实现encodeWithCoder/initWithCoder",class_type);
                 EDBPropertyInfo * property_info = [[EDBPropertyInfo alloc] initWithType:_Blob propertyName:property_name_string];
                 [fields setObject:property_info forKey:property_name_string];
             }else {
@@ -1378,7 +1414,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         //首先判断数据表是否已存在，是否需要更新字段
         if ([self isTableExists:tableName]) {
             //更新字段
-            NSLog(@"table:%@ has existed",tableName);
+//            NSLog(@"table:%@ has existed",tableName);
             
             bRes = [self alterTable:tableName fields:fields];
             break;
@@ -1512,7 +1548,6 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     int iRes = SQLITE_OK;
     
     do {
-        sqlite3_stmt * pp_stmt = nil;
         NSDictionary * field_dictionary = [self parserModelObjectFieldsWithModelClass:[model_object class]];
         //primary key
     //    NSString *_id = [self performFunc:kDefaultPrimaryKey forModel:model_object];
@@ -1650,6 +1685,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         insert_sql = [insert_sql substringWithRange:NSMakeRange(0, insert_sql.length - 1)];
         insert_sql = [insert_sql stringByAppendingString:@")"];
         
+        sqlite3_stmt * pp_stmt = nil;
         iRes = sqlite3_prepare_v2(_edb_database, [insert_sql UTF8String], -1, &pp_stmt, nil);
         if (iRes == SQLITE_OK) {
             [insert_field_array enumerateObjectsUsingBlock:^(NSString *  _Nonnull field, NSUInteger idx, BOOL * _Nonnull stop) {
@@ -1725,6 +1761,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         }else {
             NSLog(@"Sorry存储数据失败,建议检查模型类属性类型是否符合规范(sql=%@)",insert_sql);
         }
+        sqlite3_finalize(pp_stmt);
         
     }while(0);
     
@@ -2073,7 +2110,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         return nil;
     }
     
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
+    [self lockThread];
     [self.sub_model_info removeAllObjects];
     NSDictionary * sub_model_class_info = [self scanSubModelClass:model_class];
     NSMutableString * sub_model_name = [NSMutableString new];
@@ -2092,17 +2129,19 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             [model setValue:sub_model forKey:name];
         }];
     }];
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     return model_array;
 }
 
-- (int)commonQueryCountForModelClass:(Class)cls where:(NSString *)where{
+- (int)commonQueryCountForModelClass:(Class)cls where:(id)where{
     int count = 0;
+    
+    NSString *condition = [self genSQLWithWhere:where];
     
     NSString * table_name = NSStringFromClass(cls);
     NSString * select_sql = [NSString stringWithFormat:@"SELECT COUNT(*) FROM %@",table_name];
-    if (where != nil && where.length > 0) {
-        select_sql = [select_sql stringByAppendingFormat:@" WHERE %@",where];
+    if (condition != nil && condition.length > 0) {
+        select_sql = [select_sql stringByAppendingFormat:@" WHERE %@",condition];
     }
     
     sqlite3_stmt *statement;
@@ -2115,6 +2154,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     }else{
         NSLog( @"Failed from sqlite3_prepare_v2. Error is:  %s", sqlite3_errmsg(_edb_database));
     }
+    sqlite3_finalize(statement);
     
     return count;
 }
@@ -2145,9 +2185,8 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 [results addObject:name];
             }
         }
-        
-        sqlite3_finalize(stmt);
     }
+    sqlite3_finalize(stmt);
     
     return results;
 }
@@ -2310,6 +2349,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         NSLog(@"更新失败");
         iRes = SQLITE_ERROR;
     }
+    sqlite3_finalize(pp_stmt);
     
     return iRes;
 }
@@ -2388,12 +2428,12 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                     NSString *subWhere = [NSString stringWithFormat:@"_id = %@",_id];
                     int iRowCount = 0;
                     if ([self openTable:[subModel class]]) {
-                        iRowCount = [self commonQueryCountForModelClass:[subModel class] where:where];
+                        iRowCount = [self commonQueryCountForModelClass:[subModel class] where:subWhere];
                         
                         [self closeDatabase];
                     }
                     
-                    if (iRowCount>1) {
+                    if (iRowCount>=1) {
                         [self updateCommonModel:subModel where:subWhere replaceNil:replaceNil];
                     }else{
                         //更新失败，插入数据库
@@ -2533,6 +2573,14 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 
 #pragma mark - public method
 
++ (instancetype)sharedInstance{
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        staticSQLiteMgr = [[EKOSQLiteMgr alloc] initWithDataBaseDir:kDefaultEKOSQLiteDir];
+    });
+    return staticSQLiteMgr;
+}
+
 - (instancetype)initWithDataBaseDir:(NSString *)dir{
     self = [self init];
     if (self) {
@@ -2558,15 +2606,63 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return self;
 }
 
+- (void)resetDataBaseDir:(NSString *)dir privateKey:(NSString *)key{
+    if (![dir hasSuffix:@"/"]) {
+        //分割符
+        self.dbWorkSpace = [dir stringByAppendingString:@"/"];
+    }else{
+        self.dbWorkSpace = dir;
+    }
+    
+    if (key) {
+        [self.encryptKeys setValue:key forKey:kEDBEncryptKeyNormalClass];
+    }else{
+        [self.encryptKeys removeObjectForKey:kEDBEncryptKeyNormalClass];
+    }
+}
 - (void)closeDatabase{
     if (_edb_database) {
-        sqlite3_close(_edb_database);
+        //int iRes = sqlite3_close_v2(_edb_database);
+        int  rc;
+        BOOL retry;
+        BOOL triedFinalizingOpenStatements = NO;
+        
+        do {
+            retry   = NO;
+            rc      = sqlite3_close(_edb_database);
+            if (SQLITE_BUSY == rc || SQLITE_LOCKED == rc) {
+                if (!triedFinalizingOpenStatements) {
+                    triedFinalizingOpenStatements = YES;
+                    sqlite3_stmt *pStmt;
+                    while ((pStmt = sqlite3_next_stmt(_edb_database, nil)) !=0) {
+//                        NSLog(@"Closing leaked statement");
+                        sqlite3_finalize(pStmt);
+                        retry = YES;
+                    }
+                }
+            }
+            else if (SQLITE_OK != rc) {
+                NSLog(@"error closing!: %d", rc);
+            }
+        }
+        while (retry);
         _edb_database = nil;
     }
 }
 
 - (EKOSError)openDataBase:(NSString *)path encryptKey:(NSString *)key{
-    if(sqlite3_open([path UTF8String], &_edb_database) == SQLITE_OK){
+    [self closeDatabase];
+    
+    //int iRes = sqlite3_open_v2([path UTF8String], &_edb_database,SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE,NULL);
+    int iRes = sqlite3_open([path UTF8String], &_edb_database);
+    if (iRes != SQLITE_OK) {
+        [self closeDatabase];
+        
+        //try once TODO
+        iRes = sqlite3_open([path UTF8String], &_edb_database);
+    }
+    
+    if(iRes == SQLITE_OK){
         //是否数据库加密了
         if (key) {
 #if EKODATABASE_ENABLE_ENCRYPT
@@ -2575,6 +2671,8 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 if(sqlite3_key(_edb_database, [keyData bytes], (int)[keyData length]) == SQLITE_OK){
                     return EKOSErrorNone;
                 }else{
+                    [self closeDatabase];
+                    
                     return EKOSErrorEncryptFail;
                 }
             }
@@ -2584,36 +2682,23 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         }else{
             return EKOSErrorNone;
         }
+    }else{
+        [self closeDatabase];
     }
     
     return EKOSErrorUnknown;
 }
 
 - (EKOSError)removeEncryptKey:(NSString *)key ofModelClass:(Class)cls{
-    EKOSError result = EKOSErrorUnknown;
-#if EKODATABASE_ENABLE_ENCRYPT
-    NSString *path = [self localPathWithClass:cls];
-    if (path) {
-        result = [self openDataBase:path encryptKey:key];
-        if (result == EKOSErrorNone) {
-            if (sqlite3_rekey(_edb_database, NULL, 0) == SQLITE_OK) {
-                result = EKOSErrorNone;
-            }
-        }
-    }
-    
-    //操作完成之后，关闭当前数据库
-    [self closeDatabase];
-#else
-    result = EKOSErrorEncryptNotSupported;
-#endif
-    [self setEncryptKey:nil forClass:cls];
-    
-    return result;
+    return [self resetEncryptKey:nil withOriginalKey:key ofModelClass:cls];
 }
 
 - (EKOSError)resetEncryptKey:(NSString *)key withOriginalKey:(NSString *)oKey ofModelClass:(__unsafe_unretained Class)cls{
+#if kEnableUsingFMDB
+    __block EKOSError result = EKOSErrorUnknown;
+#else
     EKOSError result = EKOSErrorUnknown;
+#endif
     
 #if EKODATABASE_ENABLE_ENCRYPT
     
@@ -2658,33 +2743,33 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             //有关键字，需要update
             result = [self updateModel:model where:[NSString stringWithFormat:@"%@=%@",kDefaultPrimaryKey,_id]];
         
-            if (result == EKOSErrorNone) {
+            /*if (result == EKOSErrorNone)*/ {
                 break;
             }
         }
         
-        dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
-        @autoreleasepool {
+        [self lockThread];
+        kAutoRelease {
             [self.sub_model_info removeAllObjects];
             if([self insertModelObject:model]<0){
                 result = EKOSErrorUnknown;
             }
         }
-        dispatch_semaphore_signal(self.dsema);
+        [self releaseThread];
     }while(0);
     
     return result;
 }
 
 - (EKOSError)insertModels:(NSArray *)models{
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
-    @autoreleasepool {
+    [self lockThread];
+    kAutoRelease {
         [self.sub_model_info removeAllObjects];
         if (models != nil && models.count > 0) {
             [self inserSubModelArray:models];
         }
     }
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     
     return EKOSErrorNone;
 }
@@ -2720,16 +2805,6 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return [self queryByClass:cls where:nil];
 }
 
-- (NSArray *)queryByClass:(Class)cls withFields:(NSDictionary *)fields{
-    NSString *where = [self genSQLWithWhere:fields];
-    
-    if (where) {
-        return [self queryByClass:cls where:where];
-    }
-    
-    return nil;
-}
-
 - (id)querySingleByClass:(Class)cls where:(id)where{
     NSArray *results = [self queryByClass:cls where:where limit:@"1"];
     if (results.count>0) {
@@ -2748,17 +2823,17 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return nil;
 }
 
-- (NSInteger)queryCountByClass:(Class)cls where:(NSString *)where{
+- (NSInteger)queryCountByClass:(Class)cls where:(id)where{
     NSInteger iCount = 0;
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
-    @autoreleasepool {
+    [self lockThread];
+    kAutoRelease {
         if ([self openTable:cls]) {
             iCount = [self commonQueryCountForModelClass:cls where:where];
             
             [self closeDatabase];
         }
     }
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     
     return iCount;
 }
@@ -2778,22 +2853,24 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return [self updateModel:model where:[NSString stringWithFormat:@"%@=%@",kDefaultPrimaryKey,_id] replaceNil:replaceNil];
 }
 
-- (EKOSError)updateModel:(id)model where:(NSString *)where replaceNil:(BOOL)replaceNil{
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
-    @autoreleasepool {
+- (EKOSError)updateModel:(id)model where:(id)where replaceNil:(BOOL)replaceNil{
+    int iRes = SQLITE_OK;
+    [self lockThread];
+    kAutoRelease {
         [self.sub_model_info removeAllObjects];
-        [self updateCommonModel:model where:where replaceNil:replaceNil];
+        iRes = [self updateCommonModel:model where:[self genSQLWithWhere:where] replaceNil:replaceNil];
     }
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     
-    return EKOSErrorNone;
+    //TODO
+    return (iRes == SQLITE_OK)?EKOSErrorNone:EKOSErrorNone;
 }
 
 - (EKOSError)updateModel:(id)model{
     return [self updateModel:model replaceNil:NO];
 }
 
-- (EKOSError)updateModel:(id)model where:(NSString *)where{
+- (EKOSError)updateModel:(id)model where:(id)where{
     return [self updateModel:model where:where replaceNil:NO];
 }
 
@@ -2801,13 +2878,13 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return [self deleteByClass:cls where:nil];
 }
 
-- (EKOSError)deleteByClass:(Class)cls where:(NSString *)where{
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
-    @autoreleasepool {
+- (EKOSError)deleteByClass:(Class)cls where:(id)where{
+    [self lockThread];
+    kAutoRelease {
         [self.sub_model_info removeAllObjects];
-        [self deleteModelClass:cls where:where];
+        [self deleteModelClass:cls where:[self genSQLWithWhere:where]];
     }
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     
     return EKOSErrorNone;
 }
@@ -2830,25 +2907,25 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         result = EKOSErrorPrimaryKeyLack;
     }
     
-    return EKOSErrorNone;
+    return result;
 }
 
 - (NSInteger)deleteByModels:(NSArray *)models{
     NSInteger result = 0;
     
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
-    @autoreleasepool {
+    [self lockThread];
+    kAutoRelease {
         [self.sub_model_info removeAllObjects];
         result = [self deleteSubModelArray:models];
     }
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     
     return result;
 }
 
 - (EKOSError)removeAll{
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
-    @autoreleasepool {
+    [self lockThread];
+    kAutoRelease {
         NSFileManager * file_manager = [NSFileManager defaultManager];
         NSString * cache_path = [self databaseCacheDirectory];
         BOOL is_directory = YES;
@@ -2863,14 +2940,14 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             }];
         }
     }
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     
     return EKOSErrorNone;
 }
 
 - (EKOSError)removeByClass:(Class)cls{
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
-    @autoreleasepool {
+    [self lockThread];
+    kAutoRelease {
         NSFileManager * file_manager = [NSFileManager defaultManager];
         NSString * file_path = [self localPathWithClass:cls];
         if (file_path) {
@@ -2878,7 +2955,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
             [file_manager removeItemAtPath:file_path error:nil];
         }
     }
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     
     return EKOSErrorNone;
 }
@@ -2895,6 +2972,10 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
         }
     }
     return model_version;
+}
+
+- (NSString *)filePathOfClass:(Class)cls{
+    return [self tablePathForClass:cls autoCreate:NO];
 }
 
 - (EKOSError)saveByValue:(NSDictionary *)dict intoTable:(NSString *)tableName{
@@ -2962,7 +3043,6 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                     NSLog(@"Error sqlite3_step :. '%s'", sqlite3_errmsg(_edb_database));
                     result = EKOSErrorUnknown;
                 }else{
-                    sqlite3_finalize(compiledStatement);
                     result = EKOSErrorNone;
                 }
             }
@@ -2970,6 +3050,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
                 NSLog(@"Error sqlite3_prepare_v2 :. '%s'", sqlite3_errmsg(_edb_database));
                 result = EKOSErrorUnknown;
             }
+            sqlite3_finalize(compiledStatement);
         }
     }while(0);
 
@@ -2981,7 +3062,7 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
 - (NSArray *)findfromTable:(NSString *)tableName{
     NSArray *result = nil;
     
-    dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
+    [self lockThread];
     
     NSString * cache_directory = [self databaseCacheDirectory];
     
@@ -2992,9 +3073,17 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     }
     
     [self closeDatabase];
-    dispatch_semaphore_signal(self.dsema);
+    [self releaseThread];
     
     return result;
+}
+
+- (void)addOperation:(dispatch_block_t)block{
+    [self.operationQueue addOperationWithBlock:^(){
+        if (block) {
+            block();
+        }
+    }];
 }
 
 #pragma mark - getters and setters
@@ -3100,4 +3189,27 @@ NSString *const kIgnoreProperties           = @"eko_ignoreProperties"; //写入�
     return propertyType;
 }
 
+- (void)lockThread{
+    //dispatch_semaphore_wait(self.dsema, DISPATCH_TIME_FOREVER);
+    //pthread_mutex_lock(&pLock);
+    [self.lock lock];
+}
+
+- (void)releaseThread{
+    //dispatch_semaphore_signal(self.dsema);
+    //pthread_mutex_unlock(&pLock);
+    
+    [self.lock unlock];
+}
+
+- (NSOperationQueue *)operationQueue{
+    if (!_operationQueue) {
+        //_operationQueue = [[PINOperationQueue alloc] initWithMaxConcurrentOperations:2 priority:PINOperationQueuePriorityDefault];
+        _operationQueue = [[NSOperationQueue alloc] init];
+        
+        _operationQueue.maxConcurrentOperationCount = 1; //串行执行任务
+    }
+    
+    return _operationQueue;
+}
 @end

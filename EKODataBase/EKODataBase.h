@@ -18,3 +18,4 @@ FOUNDATION_EXPORT const unsigned char EKODataBaseVersionString[];
 
 //提供通过对象操作SQLite数据库接口
 #import <EKODataBase/EKOSQLiteMgr.h>
+#import <EKODataBase/EKOSQLiteMgr+Async.h>

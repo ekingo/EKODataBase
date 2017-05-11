@@ -8,6 +8,7 @@
 
 #import <XCTest/XCTest.h>
 #import "EKOSQLiteMgr.h"
+#import "EKOSQLiteMgr+Async.h"
 
 @interface TestModel : NSObject
 
@@ -88,6 +89,8 @@
 
 @property (nonatomic, retain) EKOSQLiteMgr *mgr;
 
+@property (nonatomic, strong) NSRecursiveLock *lock;
+
 @end
 
 @implementation EKODataBaseTests
@@ -116,6 +119,11 @@
 
 - (void)testDBInsert{
     
+    dispatch_queue_t _EKOQueue = dispatch_queue_create("test.ekodatabase.1", DISPATCH_QUEUE_SERIAL);
+//    dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+    dispatch_async(_EKOQueue, ^{
+
+
     [self.mgr removeByClass:[TestModel class]];
     
     TestModel *model = [[TestModel alloc] init];
@@ -142,6 +150,15 @@
     }];
     
     XCTAssertNotNil(results);
+        });
+    
+    dispatch_async(_EKOQueue, ^{
+        [self testQueryAll];
+    });
+    
+    dispatch_async(_EKOQueue, ^{
+        [self testDBUpdate];
+    });
 }
 
 - (void)testQueryAll{
@@ -386,6 +403,111 @@
     NSArray *results = [self.mgr queryByClass:[TestModelSecond class]];
     
     XCTAssertTrue([results count]>0);
+}
+
+#pragma mark - multithread
+- (void)testMultiThreadSafe{
+    XCTestExpectation * expectation = [self expectationWithDescription:@"Test SQlite multi Thread"];
+    
+    NSInteger count = 1;
+//    while(count<1000){
+//        TestModelSecond *second = [[TestModelSecond alloc] init];
+//        second.userId = @"deleteSubModel2";
+//        second.first = [[TestModelFirst alloc] init];
+//        second.first.n1 = @"delete_first";
+//        
+//        [self.mgr insertModel:second];
+//        
+//        //[self.mgr removeByClass:[TestModelFirst class]];
+//        
+//        NSArray *firsts = [self.mgr queryByClass:[TestModelFirst class]];
+//        
+//        [self.mgr insertModel:second];
+//        
+//        NSLog(@"<<<<<<<<<<count:%ld",(long)count);
+//        
+//        count += 1;
+//    }
+//    return;
+    
+    self.lock = [NSRecursiveLock new];
+    
+    count = 1;
+    while (count<1000) {
+        dispatch_queue_t q = dispatch_queue_create("test sqlite multiThread", DISPATCH_QUEUE_CONCURRENT);
+        dispatch_async(q, ^(){
+            [self.lock lock];
+            NSLog(@">>>>>>>>>>>count first:%ld",count);
+            
+            TestModelSecond *second = [[TestModelSecond alloc] init];
+            second.userId = @"deleteSubModel2";
+            second.first = [[TestModelFirst alloc] init];
+            second.first.n1 = @"delete_first";
+            
+            [self.mgr insertModel:second];
+            
+            //[self.mgr removeByClass:[TestModelFirst class]];
+            
+            NSArray *firsts = [self.mgr queryByClass:[TestModelFirst class]];
+            
+            [self.mgr insertModel:second];
+            
+            NSLog(@"<<<<<<<<<<count:%ld",(long)count);
+            XCTAssertTrue([firsts count]>0);
+            
+            [self.lock unlock];
+            
+        });
+                       
+        count += 1;
+    }
+    
+    [self waitForExpectationsWithTimeout:100000 handler:^(NSError *error){
+        XCTAssertNil(error, "Error");
+    }];
+}
+
+#pragma mark - Async
+- (void)testAsyncInsert{
+    //[self.mgr removeByClass:[TestModel class]];
+    
+    XCTestExpectation * expectation = [self expectationWithDescription:@"Test Async Insert"];
+    
+    TestModel *model = [[TestModel alloc] init];
+    model.name = @"test";
+    model.telphone = @"123456789";
+    model.flag = 1;
+    model.bFlag = NO;
+    model.array = @[@"1",@"2"];
+    
+    [self.mgr insertModel:model withBlock:^(EKOSError error){
+        NSLog(@"insert1,error=%ld",(long)error);
+    }];
+    
+    TestModel *model2 = [[TestModel alloc] init];
+    [self.mgr insertModel:model2 withBlock:^(EKOSError error){
+        NSLog(@"insert2,error2 = %ld",(long)error);
+    }];
+    
+    [self.mgr deleteByClass:[TestModel class] where:nil withBlock:^(EKOSError error){
+        NSLog(@"Delete1,error=%ld",(long)error);
+    }];
+    
+    [self.mgr queryByClass:[TestModel class] withBlock:^(NSArray *results){
+        NSLog(@"query1,results=%@",results);
+    }];
+    
+    TestModel *m3 = [[TestModel alloc] init];
+    m3.userId = @"u3";
+    m3.flag = 1;
+    [self.mgr insertModel:m3 withBlock:^(EKOSError error3){
+        NSLog(@"insert3,error = %ld",(long)error3);
+        [expectation fulfill];
+    }];
+    
+    [self waitForExpectationsWithTimeout:10 handler:^(NSError *error){
+        XCTAssertNil(error, "Error");
+    }];
 }
 
 #pragma mark - getters

@@ -1,4 +1,9 @@
 更新记录
+1.1.0
+添加数据库操作异步队列
+
+1.0.0
+定义sharedInstance
 
 0.0.6
 支持NSArray和NSDictionary嵌套写入（不再需要实现encodeWithCoder和initWithDecoder）；

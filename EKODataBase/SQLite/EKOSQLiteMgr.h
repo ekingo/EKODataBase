@@ -8,8 +8,6 @@
 
 #import <Foundation/Foundation.h>
 
-#define EKODATABASE_ENABLE_ENCRYPT  0
-
 typedef NS_ENUM(NSInteger,EKOSError) {
     EKOSErrorUnknown = -1,
     EKOSErrorNone    = 0,
@@ -29,6 +27,8 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  */
 @interface EKOSQLiteMgr : NSObject
 
++ (instancetype)sharedInstance;
+
 - (instancetype)initWithDataBaseDir:(NSString *)dir;
 
 #if EKODATABASE_ENABLE_ENCRYPT
@@ -41,6 +41,8 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  @return 管理器
  */
 - (instancetype)initWithDatabBaseDir:(NSString *)dir privateKey:(NSString *)key;
+
+- (void)resetDataBaseDir:(NSString *)dir privateKey:(NSString *)key;
 
 /**
  移除当前数据库密码
@@ -88,12 +90,12 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  查询数据
 
  @param cls 类型【对应的数据表】
- @param where 条件语句
+ @param where 条件语句[NSString:自定义条件语句/NSDictionary:key-value对]
  @param order 排序【已添加order关键字，只需要添加排序e.g: by name desc】
  @param limit 限定【已添加limit关键字，e.g: 100 [offset 15]->限制100条数据，从编码15开始】
  @return 数据列表
  */
-- (NSArray *)queryByClass:(Class)cls where:(NSString *)where order:(NSString *)order limit:(NSString *)limit;
+- (NSArray *)queryByClass:(Class)cls where:(id)where order:(NSString *)order limit:(NSString *)limit;
 
 /**
  查询一条数据模型
@@ -106,24 +108,13 @@ typedef NS_ENUM(NSInteger,EKOSError) {
 - (id)querySingleByClass:(Class)cls where:(id)where order:(NSString *)order;
 
 /**
- 通过字段相关设置查询
-
- @param cls 类名
- @param fields 字段属性列表
- @return 数据列表
- */
-- (NSArray *)queryByClass:(Class)cls withFields:(NSDictionary *)fields;
-
-
-/**
  查询行数
 
  @param cls 类名
  @param where 条件语句
  @return count
  */
-- (NSInteger)queryCountByClass:(Class)cls where:(NSString *)where;
-
+- (NSInteger)queryCountByClass:(Class)cls where:(id)where;
 
 /**
  更新数据
@@ -132,8 +123,7 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  @return EKOSError
  */
 - (EKOSError)updateModel:(id)model;
-- (EKOSError)updateModel:(id)model where:(NSString *)where;
-
+- (EKOSError)updateModel:(id)model where:(id)where;
 
 /**
  更新数据
@@ -143,7 +133,7 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  @return EKOSError
  */
 - (EKOSError)updateModel:(id)model replaceNil:(BOOL)replaceNil;
-- (EKOSError)updateModel:(id)model where:(NSString *)where replaceNil:(BOOL)replaceNil;
+- (EKOSError)updateModel:(id)model where:(id)where replaceNil:(BOOL)replaceNil;
 
 /**
  清空数据
@@ -160,7 +150,7 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  @param where 条件语句
  @return 成功与否
  */
-- (EKOSError)deleteByClass:(Class)cls where:(NSString *)where;
+- (EKOSError)deleteByClass:(Class)cls where:(id)where;
 
 /**
  删除数据【根据自定义的主键删除】
@@ -196,8 +186,18 @@ typedef NS_ENUM(NSInteger,EKOSError) {
  */
 - (NSString *)versionOfClass:(Class)cls;
 
+/**
+ 当前数据模型保存的文件路径
+
+ @param cls 类型
+ @return absolute path
+ */
+- (NSString *)filePathOfClass:(Class)cls;
+
 //直接使用原始数据操作数据库
 - (EKOSError)saveByValue:(NSDictionary *)values intoTable:(NSString *)tableName;
 - (NSArray *)findfromTable:(NSString *)tableName;
+
+- (void)addOperation:(dispatch_block_t)block;
 
 @end
